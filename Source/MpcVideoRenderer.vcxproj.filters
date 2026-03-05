@@ -242,9 +242,6 @@
     <ClInclude Include="SubPic\DX11SubPic.h">
       <Filter>SubPic</Filter>
     </ClInclude>
-    <ClInclude Include="..\external\nvapi\nvapi.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="MpcVideoRenderer.rc">

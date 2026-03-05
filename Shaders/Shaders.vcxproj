@@ -79,15 +79,7 @@
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="d3d11\ps_fix_hdr10.hlsl">
-      <ObjectFileOutput>E:\src\mpc-video-render\_bin\shaders\%(Filename).cso</ObjectFileOutput>
-      <TrackerLogDirectory>E:\src\mpc-video-render\_bin\obj\Debug_x64\Shaders\Shaders.tlog\</TrackerLogDirectory>
-      <EntryPointName>main</EntryPointName>
-      <SuppressStartupBanner>true</SuppressStartupBanner>
       <ShaderModel>4.0</ShaderModel>
-      <MinimalRebuildFromTracking>true</MinimalRebuildFromTracking>
-      <DisableOptimizations>false</DisableOptimizations>
-      <EnableDebuggingInformation>false</EnableDebuggingInformation>
-      <AdditionalOptions>/O2</AdditionalOptions>
       <ShaderType>Pixel</ShaderType>
     </FxCompile>
     <FxCompile Include="d3d11\ps_fix_ycgco.hlsl">
@@ -241,6 +233,18 @@
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PlatformToolset>v145</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">

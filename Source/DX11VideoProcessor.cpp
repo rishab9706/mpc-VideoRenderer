@@ -909,7 +909,7 @@ void CDX11VideoProcessor::SetHDR10ShaderParams(float masteringMinLuminanceNits, 
 	if (maxCLL <= 0) maxCLL = 1000.0f;
 	if (maxFALL <= 0) maxFALL = maxCLL;
 	if (displayMaxNits < 0 || displayMaxNits > 10000.0) displayMaxNits = 1000.0f;
-	if (toneMappingType < 0 || toneMappingType > 4) toneMappingType = 1;
+	if (toneMappingType < 0 || toneMappingType > 5) toneMappingType = 1;
 
 	// needs to be 16 byte aligned
 	FLOAT cbuffer[] = { masteringMinLuminanceNits, masteringMaxLuminanceNits, maxCLL, maxFALL, displayMaxNits, (float)toneMappingType, 0, 0 };
@@ -2228,6 +2228,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 
 					m_DoviMaxMasteringLuminance = static_cast<UINT>(pl_hdr_rescale(m_Dovi.msd.ColorMetadata.source_max_pq / 4095.f));
 					m_DoviMinMasteringLuminance = static_cast<UINT>(pl_hdr_rescale(m_Dovi.msd.ColorMetadata.source_min_pq / 4095.f) * 10000.0);
+					UpdateStatsStatic();
 				}
 
 				if (m_D3D11VP.IsReady()) {
@@ -2451,6 +2452,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 						m_hdr10.hdr10.MinMasteringLuminance / 10000.0, m_hdr10.hdr10.MaxMasteringLuminance, 
 						m_hdr10.hdr10.MaxContentLightLevel, m_hdr10.hdr10.MaxFrameAverageLightLevel,
 						m_fHdrDisplayMaxNits, m_iHdrLocalToneMappingType);
+
+					// 2. FAKE THE METADATA FOR THE TV
+					DXGI_HDR_METADATA_HDR10 fakeHdr = m_hdr10.hdr10; // Copy the original color primaries
+
+					UINT targetNits = static_cast<UINT>(m_fHdrDisplayMaxNits);
+					fakeHdr.MaxContentLightLevel = targetNits;
+					fakeHdr.MaxMasteringLuminance = targetNits;
+					fakeHdr.MaxFrameAverageLightLevel = 300; // Cap FALL to the peak
+
+					// 3. Send the faked metadata to the display to disable its internal tone mapping
+					m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &fakeHdr);
 				}
 				m_lastHdr10 = m_hdr10;
 				UpdateStatsStatic();
@@ -2465,6 +2477,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 					m_lastHdr10.hdr10.MinMasteringLuminance / 10000.0, m_lastHdr10.hdr10.MaxMasteringLuminance, 
 						m_lastHdr10.hdr10.MaxContentLightLevel, m_lastHdr10.hdr10.MaxFrameAverageLightLevel,
 						m_fHdrDisplayMaxNits, m_iHdrLocalToneMappingType);
+
+					// 2. FAKE THE METADATA FOR THE TV
+					DXGI_HDR_METADATA_HDR10 fakeHdr = m_lastHdr10.hdr10; // Copy the original color primaries
+
+					UINT targetNits = static_cast<UINT>(m_fHdrDisplayMaxNits);
+					fakeHdr.MaxContentLightLevel = targetNits;
+					fakeHdr.MaxMasteringLuminance = targetNits;
+					fakeHdr.MaxFrameAverageLightLevel = 300; // Cap FALL to the peak
+
+					// 3. Send the faked metadata to the display to disable its internal tone mapping
+					m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &fakeHdr);
 				}
 			} else {
 				m_lastHdr10.bValid = true;
@@ -2490,6 +2513,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 						m_lastHdr10.hdr10.MinMasteringLuminance / 10000.0, m_lastHdr10.hdr10.MaxMasteringLuminance,
 						m_lastHdr10.hdr10.MaxContentLightLevel, m_lastHdr10.hdr10.MaxFrameAverageLightLevel,
 						m_fHdrDisplayMaxNits, m_iHdrLocalToneMappingType);
+
+					// 2. FAKE THE METADATA FOR THE TV
+					DXGI_HDR_METADATA_HDR10 fakeHdr = m_lastHdr10.hdr10; // Copy the original color primaries
+
+					UINT targetNits = static_cast<UINT>(m_fHdrDisplayMaxNits);
+					fakeHdr.MaxContentLightLevel = targetNits;
+					fakeHdr.MaxMasteringLuminance = targetNits;
+					fakeHdr.MaxFrameAverageLightLevel = 300; // Cap FALL to the peak
+
+					// 3. Send the faked metadata to the display to disable its internal tone mapping
+					m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &fakeHdr);
 				}
 
 				UpdateStatsStatic();
@@ -2516,6 +2550,17 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 						m_hdr10.hdr10.MinMasteringLuminance / 10000.0, m_hdr10.hdr10.MaxMasteringLuminance, 
 						m_hdr10.hdr10.MaxContentLightLevel, m_hdr10.hdr10.MaxFrameAverageLightLevel,
 						m_fHdrDisplayMaxNits, m_iHdrLocalToneMappingType);
+
+					// 2. FAKE THE METADATA FOR THE TV
+					DXGI_HDR_METADATA_HDR10 fakeHdr = m_hdr10.hdr10; // Copy the original color primaries
+
+					UINT targetNits = static_cast<UINT>(m_fHdrDisplayMaxNits);
+					fakeHdr.MaxContentLightLevel = targetNits;
+					fakeHdr.MaxMasteringLuminance = targetNits;
+					fakeHdr.MaxFrameAverageLightLevel = 300; // Cap FALL to the peak
+
+					// 3. Send the faked metadata to the display to disable its internal tone mapping
+					m_pDXGISwapChain4->SetHDRMetaData(DXGI_HDR_METADATA_TYPE_HDR10, sizeof(DXGI_HDR_METADATA_HDR10), &fakeHdr);
 				}
 				m_lastHdr10 = m_hdr10;
 				UpdateStatsStatic();
@@ -3949,6 +3994,9 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 					case 4: 
 						m_strStatsHDR.append(L" Mobius");
 						break;
+					case 5:
+						m_strStatsHDR.append(L" BT2390");
+						break;
 					}
 					m_strStatsHDR.append(std::format(L"\n Display Max Nits: {:.1f} nits", m_fHdrDisplayMaxNits));
 				}
@@ -3989,10 +4037,12 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 
 		if (m_Dovi.bValid)
 		{
-			m_strStatsHDR += std::format(L"\nDoblyVision: Metadata: {} Bit: " , m_Dovi.msd.ColorMetadata.signal_bit_depth);
+			m_strStatsHDR += std::format(L"\nDolby Vision: Dynamic Peak {} nits ({} bit)",
+				m_DoviMaxMasteringLuminance,
+				m_Dovi.msd.ColorMetadata.signal_bit_depth);
 		} else
 		{
-			m_strStatsHDR += std::format(L"\nDoblyVision: not valid");
+			m_strStatsHDR += std::format(L"\nDolbyVision: not valid");
 		}
 
 		UpdateStatsPresent();

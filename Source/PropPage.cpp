@@ -288,6 +288,7 @@ HRESULT CVRMainPPage::OnActivate()
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO9, L"Local: Reinhard", 2);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO9, L"Local: Hable", 3);
 	ComboBox_AddStringData(m_hWnd, IDC_COMBO9, L"Local: Mobius", 4);
+	ComboBox_AddStringData(m_hWnd, IDC_COMBO9, L"Local: BT2390", 5);
 	
 	SetControls();
 
@@ -506,6 +507,11 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 					m_SetsPP.bHdrPassthrough = false;
 					m_SetsPP.bHdrLocalToneMapping = true;
 					m_SetsPP.iHdrLocalToneMappingType = 4;
+					break;
+				case 6:
+					m_SetsPP.bHdrPassthrough = false;
+					m_SetsPP.bHdrLocalToneMapping = true;
+					m_SetsPP.iHdrLocalToneMappingType = 5;
 					break;
 				default:
 					break;
