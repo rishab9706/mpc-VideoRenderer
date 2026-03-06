@@ -2456,16 +2456,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	m_RenderStats.paintticks = tick3 - tick1;
 
 	if (m_pDXGISwapChain4) {
-		if (m_hdr10.bValid && !m_Dovi.bValid) {
-			if (m_DoviMaxMasteringLuminance > m_hdr10.hdr10.MaxMasteringLuminance) {
-				m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
-			}
-			if (m_DoviMinMasteringLuminance && m_DoviMinMasteringLuminance != m_hdr10.hdr10.MinMasteringLuminance) {
-				m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
-			}
-		}
-
-		if (m_Dovi.bValid) {
+		if (m_Dovi.bValid && !m_bHdrPassthrough) {
 			// For Profile 5, inherit the valid flag and generated primaries from the previous frame
 			if (!m_hdr10.bValid && m_lastHdr10.bValid) {
 				m_hdr10.bValid = true;
@@ -2474,7 +2465,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 
 			// Apply the dynamic frame-by-frame boundaries
 			m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
-			m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
+			m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance*10000;
 			m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
 			m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviAvgContentLightLevel;
 		}
