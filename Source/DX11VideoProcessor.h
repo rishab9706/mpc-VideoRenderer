@@ -184,6 +184,7 @@ private:
 
 	UINT m_DoviMaxMasteringLuminance = 0;
 	UINT m_DoviMinMasteringLuminance = 0;
+	UINT m_DoviAvgContentLightLevel = 0;
 
 	HMONITOR m_lastFullscreenHMonitor = nullptr;
 

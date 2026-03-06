@@ -2161,8 +2161,16 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 
 		if (m_srcParams.CSType == CS_YUV && (m_bHdrPreferDoVi || !SourceIsPQorHLG())) {
 			MediaSideDataDOVIMetadata* pDOVIMetadata = nullptr;
-			hr = pMediaSideData->GetSideData(IID_MediaSideDataDOVIMetadata, (const BYTE**)&pDOVIMetadata, &size);
-			if (SUCCEEDED(hr) && size == sizeof(MediaSideDataDOVIMetadata) && CheckDoviMetadata(pDOVIMetadata, 1)) {
+
+			// Try fetching V2 metadata first
+			hr = pMediaSideData->GetSideData(IID_MediaSideDataDOVIMetadataV2, (const BYTE**)&pDOVIMetadata, &size);
+			if (FAILED(hr)) {
+				// Fallback to static metadata
+				hr = pMediaSideData->GetSideData(IID_MediaSideDataDOVIMetadata, (const BYTE**)&pDOVIMetadata, &size);
+			}
+
+			// Use >= for size to account for variable extension payloads
+			if (SUCCEEDED(hr) && size >= sizeof(MediaSideDataDOVIMetadata) && CheckDoviMetadata(pDOVIMetadata, 1)) {
 
 				const bool bYCCtoRGBChanged = !m_PSConvColorData.bEnable ||
 					(memcmp(
@@ -2182,8 +2190,43 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						&pDOVIMetadata->Mapping.curves,
 						sizeof(MediaSideDataDOVIMetadata::Mapping.curves)
 					) != 0);
-				const bool bMasteringLuminanceChanged = m_Dovi.msd.ColorMetadata.source_max_pq != pDOVIMetadata->ColorMetadata.source_max_pq
-					|| m_Dovi.msd.ColorMetadata.source_min_pq != pDOVIMetadata->ColorMetadata.source_min_pq;
+				// Fallback to static L0 values
+				uint16_t frame_max_pq = pDOVIMetadata->ColorMetadata.source_max_pq;
+				uint16_t frame_min_pq = pDOVIMetadata->ColorMetadata.source_min_pq;
+				uint16_t frame_avg_pq = 0;
+
+				// Extract dynamic L1 values if available
+				for (uint32_t i = 0; i < 32; ++i) {
+					if (pDOVIMetadata->Extensions[i].level == 1) {
+						frame_max_pq = pDOVIMetadata->Extensions[i].Level1.max_pq;
+						frame_min_pq = pDOVIMetadata->Extensions[i].Level1.min_pq;
+						frame_avg_pq = pDOVIMetadata->Extensions[i].Level1.avg_pq;
+						break;
+					}
+				}
+
+				// based on libplacebo source code
+				constexpr float
+					PQ_M1 = 2610.f / (4096.f * 4.f),
+					PQ_M2 = 2523.f / 4096.f * 128.f,
+					PQ_C1 = 3424.f / 4096.f,
+					PQ_C2 = 2413.f / 4096.f * 32.f,
+					PQ_C3 = 2392.f / 4096.f * 32.f;
+
+				auto pl_hdr_rescale = [](float x) {
+					x = powf(x, 1.0f / PQ_M2);
+					x = fmaxf(x - PQ_C1, 0.0f) / (PQ_C2 - PQ_C3 * x);
+					x = powf(x, 1.0f / PQ_M1);
+					x *= 10000.0f;
+
+					return x;
+					};
+
+				UINT targetMaxNits = static_cast<UINT>(pl_hdr_rescale(frame_max_pq / 4095.f));
+				UINT targetMinNits = static_cast<UINT>(pl_hdr_rescale(frame_min_pq / 4095.f));
+				UINT targetAvgNits = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq / 4095.f));
+
+				const bool bMasteringLuminanceChanged = !m_Dovi.bValid || (m_DoviMaxMasteringLuminance != targetMaxNits) || (m_DoviMinMasteringLuminance != targetMinNits);
 
 				bool bMMRChanged = false;
 				if (bMappingCurvesChanged) {
@@ -2208,25 +2251,10 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				m_Dovi.bValid = true;
 
 				if (bMasteringLuminanceChanged) {
-					// based on libplacebo source code
-					constexpr float
-						PQ_M1 = 2610.f / (4096.f * 4.f),
-						PQ_M2 = 2523.f / 4096.f * 128.f,
-						PQ_C1 = 3424.f / 4096.f,
-						PQ_C2 = 2413.f / 4096.f * 32.f,
-						PQ_C3 = 2392.f / 4096.f * 32.f;
-
-					auto pl_hdr_rescale = [](float x) {
-						x = powf(x, 1.0f / PQ_M2);
-						x = fmaxf(x - PQ_C1, 0.0f) / (PQ_C2 - PQ_C3 * x);
-						x = powf(x, 1.0f / PQ_M1);
-						x *= 10000.0f;
-
-						return x;
-					};
-
-					m_DoviMaxMasteringLuminance = static_cast<UINT>(pl_hdr_rescale(m_Dovi.msd.ColorMetadata.source_max_pq / 4095.f));
-					m_DoviMinMasteringLuminance = static_cast<UINT>(pl_hdr_rescale(m_Dovi.msd.ColorMetadata.source_min_pq / 4095.f) * 10000.0);
+					// Apply the dynamically calculated L1 scene Nits
+					m_DoviMaxMasteringLuminance = targetMaxNits;
+					m_DoviMinMasteringLuminance = targetMinNits;
+					m_DoviAvgContentLightLevel = targetAvgNits;
 					UpdateStatsStatic();
 				}
 
@@ -2428,13 +2456,27 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	m_RenderStats.paintticks = tick3 - tick1;
 
 	if (m_pDXGISwapChain4) {
-		if (m_hdr10.bValid) {
+		if (m_hdr10.bValid && !m_Dovi.bValid) {
 			if (m_DoviMaxMasteringLuminance > m_hdr10.hdr10.MaxMasteringLuminance) {
 				m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
 			}
 			if (m_DoviMinMasteringLuminance && m_DoviMinMasteringLuminance != m_hdr10.hdr10.MinMasteringLuminance) {
 				m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
 			}
+		}
+
+		if (m_Dovi.bValid) {
+			// For Profile 5, inherit the valid flag and generated primaries from the previous frame
+			if (!m_hdr10.bValid && m_lastHdr10.bValid) {
+				m_hdr10.bValid = true;
+				m_hdr10.hdr10 = m_lastHdr10.hdr10;
+			}
+
+			// Apply the dynamic frame-by-frame boundaries
+			m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
+			m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
+			m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
+			m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviAvgContentLightLevel;
 		}
 
 		const DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
@@ -2499,8 +2541,8 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 				m_lastHdr10.hdr10.BluePrimary[1]  = 3000;
 				m_lastHdr10.hdr10.WhitePoint[0]   = 15635;
 				m_lastHdr10.hdr10.WhitePoint[1]   = 16450;
-				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance ? m_DoviMaxMasteringLuminance : 1000; // 1000 nits
-				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance ? m_DoviMinMasteringLuminance : 50 * 10000; // 0.005 nits
+				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
+				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
 
 				if (m_bHdrPassthrough)
 				{
