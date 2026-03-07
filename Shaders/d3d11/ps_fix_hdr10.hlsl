@@ -47,17 +47,17 @@ float3 BT2390Tonemap(float3 color)
     if (displayMaxNits >= safeMaxCLL)
         return color;
 
-    // Find the max RGB component to preserve hue and saturation
-    float maxRGB = max(color.r, max(color.g, color.b));
+    // Find the average RGB component to preserve hue and saturation
+    float avgRGB = 0.2627 * color.r + 0.6780 * color.g + 0.0593 * color.b; // Use average instead of max to better preserve color balance)
     
     // Avoid division by zero on pure black pixels
-    if (maxRGB <= 0.000001)
+    if (avgRGB <= 0.000001)
         return color;
 
     // Convert peaks and current pixel luminance to PQ space
     float maxCLL_PQ = LinearToST2084(safeMaxCLL, 10000.0f);
     float target_PQ = LinearToST2084(displayMaxNits,10000.0f);
-    float E1 = LinearToST2084(maxRGB, 10000.0f);
+    float E1 = LinearToST2084(avgRGB, 10000.0f);
 
     // Calculate BT.2390 Knee Start (KS) point
     float KS = 1.5 * target_PQ - 0.5 * maxCLL_PQ;
@@ -82,7 +82,7 @@ float3 BT2390Tonemap(float3 color)
     float linearMapped = ST2084ToLinear(E2, 10000.0f);
 
     // 8. Scale the original RGB channels equally to preserve the exact color hue
-    float3 mappedColor = color * (linearMapped / maxRGB);
+    float3 mappedColor = color * (linearMapped / avgRGB);
 
     return mappedColor;
 }
