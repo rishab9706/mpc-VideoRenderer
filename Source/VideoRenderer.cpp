@@ -248,7 +248,7 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 			m_Sets.bHdrLocalToneMapping  = !!dw;
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_HdrLocaLToneMappingType, dw)) {
-			m_Sets.iHdrLocalToneMappingType = discard<int>(dw, 0, 0, 5);
+			m_Sets.iHdrLocalToneMappingType = discard<int>(dw, 0, 0, 6);
 		}
 		float value = 0;
 		ULONG size = sizeof(value);

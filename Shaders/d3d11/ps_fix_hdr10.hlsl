@@ -20,16 +20,99 @@ cbuffer RootConstants : register(b0)
 };
 
 // ✅ ACES RRT + ODT Implementation
-float3 RRTAndODTFit(float3 color) {
+float3 RRTAndODTFit(float3 color)
+{
     // Constants used in the ACES Filmic tone mapping
-    float A = 2.51f;  // Constant A
-    float B = 0.03f;  // Constant B
-    float C = 2.43f;  // Constant C
-    float D = 0.59f;  // Constant D
-    float E = 0.14f;  // Constant E
+    float A = 2.51f; // Constant A
+    float B = 0.03f; // Constant B
+    float C = 2.43f; // Constant C
+    float D = 0.59f; // Constant D
+    float E = 0.14f; // Constant E
 
     // Apply the ACES RRT + ODT
     color = (color * (A * color + B)) / (color * (C * color + D) + E);
+    
+    return color;
+}
+
+float pl_smoothstep(float edge0, float edge1, float x)
+{
+    float t = clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// --- ST 2094-10 EETF Tone Mapping Function
+float3 ST209410Tonemap(float3 color)
+{
+    
+    if (displayMaxNits >= maxCLL)
+        return color;
+   
+    float src_min = LinearToST2084(MasteringMinLuminanceNits, 10000.0f);
+    float src_max = LinearToST2084(maxCLL, 10000.0f);
+    float src_avg = LinearToST2084(maxFALL, 10000.0f);
+    float dst_min = LinearToST2084(0.0f, 10000.0f);
+    float dst_max = LinearToST2084(displayMaxNits, 10000.0f);
+
+    const float min_knee = 0.1f;
+    const float max_knee = 0.8f;
+    const float def_knee = 0.4f;
+    const float knee_adaptation = 0.4f;
+
+    const float src_knee_min = lerp(src_min, src_max, min_knee);
+    const float src_knee_max = lerp(src_min, src_max, max_knee);
+    const float dst_knee_min = lerp(dst_min, dst_max, min_knee);
+    const float dst_knee_max = lerp(dst_min, dst_max, max_knee);
+
+    float src_knee = (maxFALL > 0.0f) ? src_avg : lerp(src_min, src_max, def_knee);
+    src_knee = clamp(src_knee, src_knee_min, src_knee_max);
+
+    float target = (src_knee - src_min) / (src_max - src_min);
+    float adapted = lerp(dst_min, dst_max, target);
+
+    float tuning = 1.0f - pl_smoothstep(max_knee, def_knee, target) * pl_smoothstep(min_knee, def_knee, target);
+    float adaptation = lerp(knee_adaptation, 1.0f, tuning);
+    
+    float dst_knee = lerp(src_knee, adapted, adaptation);
+    dst_knee = clamp(dst_knee, dst_knee_min, dst_knee_max);
+
+    float out_src_knee = ST2084ToLinear(src_knee, 10000.0f);
+    float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f);
+
+    float x1 = MasteringMinLuminanceNits;
+    float x3 = maxCLL;
+    float x2 = out_src_knee;
+
+    float y1 = 0.0f;
+    float y3 = displayMaxNits;
+    float y2 = out_dst_knee;
+
+    // Build the 3x3 cmat array
+    float m00 = x2 * x3 * (y2 - y3);
+    float m01 = x1 * x3 * (y3 - y1);
+    float m02 = x1 * x2 * (y1 - y2);
+    float m10 = x3 * y3 - x2 * y2;
+    float m11 = x1 * y1 - x3 * y3;
+    float m12 = x2 * y2 - x1 * y1;
+    float m20 = x3 - x2;
+    float m21 = x1 - x3;
+    float m22 = x2 - x1;
+
+    float coef0 = m00 * y1 + m01 * y2 + m02 * y3;
+    float coef1 = m10 * y1 + m11 * y2 + m12 * y3;
+    float coef2 = m20 * y1 + m21 * y2 + m22 * y3;
+
+    float k = 1.0f / (x3 * y3 * (x1 - x2) + x2 * y2 * (x3 - x1) + x1 * y1 * (x2 - x3));
+    
+    float c1 = k * coef0;
+    float c2 = k * coef1;
+    float c3 = k * coef2;
+
+    float x_nits = 0.2627 * color.r + 0.6780 * color.g + 0.0593 * color.b;
+    
+    float y_nits = (c1 + c2 * x_nits) / (1.0f + c3 * x_nits);
+
+    color.rgb *= (x_nits > 0.0f) ? (y_nits / x_nits) : 1.0f;
     
     return color;
 }
@@ -147,8 +230,13 @@ float4 main(PS_INPUT input) : SV_Target {
     else if (sel == 5) {
         colorBT.rgb = BT2390Tonemap(colorBT.rgb);  // Apply BT.2390 EETF Tone Mapping
     }
-    else {
-        color.rgb = ACESFilmTonemap(color.rgb);  // Default to ACES if selection is invalid
+    else if (sel == 6)
+    {
+        colorBT.rgb = ST209410Tonemap(colorBT.rgb); // Apply ST.2094-10 EETF Tone Mapping
+    }
+    else
+    {
+        color.rgb = ACESFilmTonemap(color.rgb); // Default to ACES if selection is invalid
     }
 
     // Scale to display peak brightness after tone mapping
@@ -158,7 +246,7 @@ float4 main(PS_INPUT input) : SV_Target {
     color = LinearToST2084(color, 10000.0f);  // Convert Linear to PQ
     colorBT = LinearToST2084(colorBT, 10000.0f); // Convert original for BT.2390
     
-    if (sel == 5)
+    if (sel == 5 || sel == 6)
     {
         return float4(colorBT.rgb, colorBT.a); // Output BT.2390 result
     }
