@@ -2205,6 +2205,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						frame_avg_pq = pDOVIMetadata->Extensions[i].Level1.avg_pq;
 						break;
 					}
+					if (pDOVIMetadata->Extensions[i].level == 3) {
+						frame_max_pq = pDOVIMetadata->Extensions[i].Level3.max_pq_offset;
+						frame_min_pq = pDOVIMetadata->Extensions[i].Level3.min_pq_offset;
+						frame_avg_pq = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset;
+						break;
+					}
 				}
 				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 3) {
