@@ -907,9 +907,8 @@ void CDX11VideoProcessor::SetHDR10ShaderParams(float masteringMinLuminanceNits, 
 	if (masteringMinLuminanceNits <= 0) masteringMinLuminanceNits = 0;
 	if (masteringMaxLuminanceNits <= 0) masteringMaxLuminanceNits = 1000.0f;
 	if (maxCLL <= 0) maxCLL = 1000.0f;
-	if (maxFALL <= 0) maxFALL = maxCLL;
 	if (displayMaxNits < 0 || displayMaxNits > 10000.0) displayMaxNits = 1000.0f;
-	if (toneMappingType < 0 || toneMappingType > 5) toneMappingType = 1;
+	if (toneMappingType < 0 || toneMappingType > 6) toneMappingType = 1;
 
 	// needs to be 16 byte aligned
 	FLOAT cbuffer[] = { masteringMinLuminanceNits, masteringMaxLuminanceNits, maxCLL, maxFALL, displayMaxNits, (float)toneMappingType, 0, 0 };
@@ -2194,6 +2193,9 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				uint16_t frame_max_pq = pDOVIMetadata->ColorMetadata.source_max_pq;
 				uint16_t frame_min_pq = pDOVIMetadata->ColorMetadata.source_min_pq;
 				uint16_t frame_avg_pq = 0;
+				uint16_t frame_max_pq_offset = 0;
+				uint16_t frame_min_pq_offset = 0;
+				uint16_t frame_avg_pq_offset = 0;
 
 				// Extract dynamic L1 values if available
 				for (uint32_t i = 0; i < 32; ++i) {
@@ -2201,6 +2203,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						frame_max_pq = pDOVIMetadata->Extensions[i].Level1.max_pq;
 						frame_min_pq = pDOVIMetadata->Extensions[i].Level1.min_pq;
 						frame_avg_pq = pDOVIMetadata->Extensions[i].Level1.avg_pq;
+						break;
+					}
+					if (pDOVIMetadata->Extensions[i].level == 3) {
+						frame_max_pq = pDOVIMetadata->Extensions[i].Level3.max_pq_offset;
+						frame_min_pq = pDOVIMetadata->Extensions[i].Level3.min_pq_offset;
+						frame_avg_pq = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset;
 						break;
 					}
 				}
@@ -2225,8 +2233,15 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				UINT targetMaxNits = static_cast<UINT>(pl_hdr_rescale(frame_max_pq / 4095.f));
 				UINT targetMinNits = static_cast<UINT>(pl_hdr_rescale(frame_min_pq / 4095.f));
 				UINT targetAvgNits = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq / 4095.f));
+				UINT targetMaxNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_max_pq_offset / 4095.f));
+				UINT targetMinNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_min_pq_offset / 4095.f));
+				UINT targetAvgNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq_offset / 4095.f));
 
-				const bool bMasteringLuminanceChanged = !m_Dovi.bValid || (m_DoviMaxMasteringLuminance != targetMaxNits) || (m_DoviMinMasteringLuminance != targetMinNits);
+				targetMaxNits = targetMaxNits + targetMaxNitsOffset;
+				targetMinNits = targetMinNits + targetMinNitsOffset;
+				targetAvgNits = targetAvgNits + targetAvgNitsOffset;
+
+				const bool bMasteringLuminanceChanged = !m_Dovi.bValid || (m_DoviMaxMasteringLuminance != targetMaxNits) || (m_DoviMinMasteringLuminance != targetMinNits) || (m_DoviAvgContentLightLevel != targetAvgNits);
 
 				bool bMMRChanged = false;
 				if (bMappingCurvesChanged) {
@@ -2533,7 +2548,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 				m_lastHdr10.hdr10.WhitePoint[0]   = 15635;
 				m_lastHdr10.hdr10.WhitePoint[1]   = 16450;
 				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
-				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
+				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance * 10000;
+				m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
+				m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviAvgContentLightLevel;
 
 				if (m_bHdrPassthrough)
 				{
@@ -4028,6 +4045,9 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 						break;
 					case 5:
 						m_strStatsHDR.append(L" BT2390");
+						break;
+					case 6:
+						m_strStatsHDR.append(L" ST2094-10");
 						break;
 					}
 					m_strStatsHDR.append(std::format(L"\n Display Max Nits: {:.1f} nits", m_fHdrDisplayMaxNits));
