@@ -2208,9 +2208,9 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				}
 				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 3) {
-						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset;
-						frame_min_pq_offset = pDOVIMetadata->Extensions[i].Level3.min_pq_offset;
-						frame_avg_pq_offset = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset;
+						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
+						frame_min_pq_offset = pDOVIMetadata->Extensions[i].Level3.min_pq_offset - 2048;
+						frame_avg_pq_offset = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset - 2048;
 						break;
 					}
 				}
@@ -2235,13 +2235,13 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				UINT targetMaxNits = static_cast<UINT>(pl_hdr_rescale(frame_max_pq / 4095.f));
 				UINT targetMinNits = static_cast<UINT>(pl_hdr_rescale(frame_min_pq / 4095.f));
 				UINT targetAvgNits = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq / 4095.f));
-				UINT targetMaxNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_max_pq_offset / 4095.f));
-				UINT targetMinNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_min_pq_offset / 4095.f));
-				UINT targetAvgNitsOffset = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq_offset / 4095.f));
+				int targetMaxNitsOffset = static_cast<int>(pl_hdr_rescale(frame_max_pq_offset / 4095.f));
+				int targetMinNitsOffset = static_cast<int>(pl_hdr_rescale(frame_min_pq_offset / 4095.f));
+				int targetAvgNitsOffset = static_cast<int>(pl_hdr_rescale(frame_avg_pq_offset / 4095.f));
 
 				targetMaxNits = targetMaxNits + targetMaxNitsOffset;
-				targetMinNits = targetMinNits + targetMinNitsOffset;
 				targetAvgNits = targetAvgNits + targetAvgNitsOffset;
+				targetMinNits = targetMinNits + targetMinNitsOffset;
 
 				const bool bMasteringLuminanceChanged = !m_Dovi.bValid || (m_DoviMaxMasteringLuminance != targetMaxNits) || (m_DoviMinMasteringLuminance != targetMinNits) || (m_DoviAvgContentLightLevel != targetAvgNits);
 
