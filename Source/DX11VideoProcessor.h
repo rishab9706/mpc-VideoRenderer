@@ -89,6 +89,7 @@ private:
 	// HDR tonemapping
 	CComPtr<ID3D11Buffer> m_pHDR10ToneMappingConstants;
 	CComPtr<ID3D11PixelShader> m_pPSHDR10ToneMapping;
+	CComPtr<ID3D11Buffer> m_pDoViDynamicConstants;
 	const wchar_t* m_strHDR10ToneMapping = nullptr;
 
 	// D3D11 Shader Video Processor
@@ -185,6 +186,16 @@ private:
 	UINT m_DoviMaxMasteringLuminance = 0;
 	UINT m_DoviMinMasteringLuminance = 0;
 	UINT m_DoviAvgContentLightLevel = 0;
+	bool m_bDoviL1MetadataValid = false;
+	bool m_bDoviL2MetadataValid = false;
+	bool m_bDoviL3MetadataValid = false;
+	float m_DoviChromaWeight = 1.0f;
+	float m_DoviSatGain = 1.0f;
+	float m_DoviTrimOffset = 0.0f;
+	float m_DoviTrimPower = 1.0f;
+	float m_DoviTrimSlope = 1.0f;
+
+	uint16_t m_DoviTargetNits = 0;
 
 	HMONITOR m_lastFullscreenHMonitor = nullptr;
 
@@ -216,6 +227,7 @@ private:
 	void SetShaderConvertColorParams();
 	void SetShaderLuminanceParams();
 	void SetHDR10ShaderParams(float, float, float, float, float, int);
+	void SetDolbyVisionDynamicParams(float, float, float, float, float);
 
 	HRESULT SetShaderDoviCurvesPoly();
 	HRESULT SetShaderDoviCurves();
