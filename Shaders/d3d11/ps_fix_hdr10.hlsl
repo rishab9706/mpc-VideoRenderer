@@ -93,15 +93,10 @@ float3 hullDesat(float3 ipt, float i_orig)
     return ipt;
 }
 
-float3 applyDolbyChromaSat(float3 ipt)
+float3 applyDolbySatGain(float3 ipt)
 {
-    if (abs(ChromaWeight) > 0.0001f || abs(SaturationGain - 1.0f) > 0.0001f)
-    {
-
-        // SATURATION GAIN: Manually scale the color volume up or down based on the colorist's intent.
-        ipt.y *= SaturationGain;
-        ipt.z *= SaturationGain;
-    }
+    ipt.y *= SaturationGain;
+    ipt.z *= SaturationGain;
     
     return ipt;
 }
@@ -332,8 +327,10 @@ float4 main(PS_INPUT input) : SV_Target {
         
         float3 iptTrimmed = applyDolbyTrim(ipt);
         
-        float3 iptDesat = hullDesat(iptTrimmed, i_orig);
-
+        float3 iptSat = applyDolbySatGain(iptTrimmed);
+        
+        float3 iptDesat = hullDesat(iptSat, i_orig);
+        
         colorBT.rgb = IPT_to_RGB(iptDesat);
     }
     else

@@ -2277,10 +2277,6 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					}
 				}
 
-				if (abs(m_fHdrDisplayMaxNits - doviTargetDisplayNits) > 200 && m_bDoviL2MetadataValid) {
-					m_bDoviL2MetadataValid = false;
-				}
-
 				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 3) {
 						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
@@ -2345,7 +2341,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						m_DoviTrimSlope = trim_slope;
 						m_DoviTrimPower = trim_power;
 						SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower);
-						UpdateStatsStatic(); 
+						UpdateStatsStatic();
 					}
 				}
 
@@ -4237,7 +4233,7 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 		str.append(L", L3");
 	}
 	if (m_bDoviL2MetadataValid) {
-		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower);
+		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nSaturation Gain : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviSatGain);
 	}
 	str.append(m_strStatsVProc);
 
