@@ -39,16 +39,11 @@ float3 RGB_to_IPT(float3 rgb_nits)
     lms.y = -0.22630f * rgb_nits.r + 1.16532f * rgb_nits.g + 0.04570f * rgb_nits.b;
     lms.z = 0.00000f * rgb_nits.r + 0.00000f * rgb_nits.g + 0.91822f * rgb_nits.b;
 
-    // 2. Signed PQ Encoding (Preserves negative out-of-gamut values)
-    float L_PQ = sign(lms.x) * LinearToST2084(abs(lms.x), 10000.0f);
-    float M_PQ = sign(lms.y) * LinearToST2084(abs(lms.y), 10000.0f);
-    float S_PQ = sign(lms.z) * LinearToST2084(abs(lms.z), 10000.0f);
-
     // 3. Ebner & Fairchild 1998 LMS->IPT Matrix
     float3 ipt;
-    ipt.x = 0.4000f * L_PQ + 0.4000f * M_PQ + 0.2000f * S_PQ;
-    ipt.y = 4.4550f * L_PQ - 4.8510f * M_PQ + 0.3960f * S_PQ;
-    ipt.z = 0.8056f * L_PQ + 0.3572f * M_PQ - 1.1628f * S_PQ;
+    ipt.x = 0.4000f * lms.x + 0.4000f * lms.y + 0.2000f * lms.z;
+    ipt.y = 4.4550f * lms.x - 4.8510f * lms.y + 0.3960f * lms.z;
+    ipt.z = 0.8056f * lms.x + 0.3572f * lms.y - 1.1628f * lms.z;
     return ipt;
 }
 
@@ -60,17 +55,11 @@ float3 IPT_to_RGB(float3 ipt)
     lmspq.y = 1.0f * ipt.x - 0.1138760f * ipt.y + 0.133217f * ipt.z;
     lmspq.z = 1.0f * ipt.x + 0.0326151f * ipt.y - 0.676887f * ipt.z;
 
-    // 2. Signed exact PQ Decoding
-    float3 lms;
-    lms.x = sign(lmspq.x) * ST2084ToLinear(abs(lmspq.x), 10000.0f);
-    lms.y = sign(lmspq.y) * ST2084ToLinear(abs(lmspq.y), 10000.0f);
-    lms.z = sign(lmspq.z) * ST2084ToLinear(abs(lmspq.z), 10000.0f);
-
     // 3. Libplacebo LMS->RGB Matrix (Inverted Crosstalk matrix)
     float3 rgb_nits;
-    rgb_nits.r = 1.859936f * lms.x - 1.129382f * lms.y + 0.219897f * lms.z;
-    rgb_nits.g = 0.361191f * lms.x + 0.638812f * lms.y - 0.000006f * lms.z;
-    rgb_nits.b = 0.000000f * lms.x + 0.000000f * lms.y + 1.089064f * lms.z;
+    rgb_nits.r = 1.859936f * lmspq.x - 1.129382f * lmspq.y + 0.219897f * lmspq.z;
+    rgb_nits.g = 0.361191f * lmspq.x + 0.638812f * lmspq.y - 0.000006f * lmspq.z;
+    rgb_nits.b = 0.000000f * lmspq.x + 0.000000f * lmspq.y + 1.089064f * lmspq.z;
 
     return rgb_nits;
 }
@@ -82,21 +71,14 @@ float3 hullDesat(float3 ipt, float i_orig)
     // Libplacebo's custom polynomial smoothing curve
     hull = ((hull - 6.0f) * hull + 9.0f) * hull;
 
-    // Calculate ratios safely to avoid NaN on pure black (0.0) pixels
-    float ratio_orig = i_orig / max(1e-6f, ipt.x);
-    float ratio_hull = hull.y / max(1e-6f, hull.x);
-
-    // Scale the chroma (Y and Z) channels
-    ipt.y *= min(ratio_orig, ratio_hull);
-    ipt.z *= min(ratio_orig, ratio_hull);
+    ipt.yz *= min(i_orig / max(1e-6f, ipt.x), hull.y / max(1e-6f, hull.x));
     
     return ipt;
 }
 
 float3 applyDolbySatGain(float3 ipt)
 {
-    ipt.y *= SaturationGain;
-    ipt.z *= SaturationGain;
+    ipt.yz *= SaturationGain;
     
     return ipt;
 }
@@ -285,8 +267,8 @@ float3 MobiusTonemap(float3 color) {
 float4 main(PS_INPUT input) : SV_Target {
     // Sample texture and convert from PQ to linear
     float4 color = tex.Sample(samp, input.Tex);
+    float4 colorBT = color;
     color = ST2084ToLinear(color, 10000.0f); // Convert PQ to Linear space
-    float4 colorBT = color; // Keep a copy for BT.2390 processing
 
     float effectiveMaxLum = min(MasteringMaxLuminanceNits, maxCLL);
     float fallAdjustment = min(MasteringMaxLuminanceNits / maxFALL, 1.0);
@@ -343,7 +325,6 @@ float4 main(PS_INPUT input) : SV_Target {
 
     // Convert back from linear to PQ color space
     color = LinearToST2084(color, 10000.0f);  // Convert Linear to PQ
-    colorBT = LinearToST2084(colorBT, 10000.0f); // Convert original for BT.2390
     
     if (sel == 5 || sel == 6)
     {

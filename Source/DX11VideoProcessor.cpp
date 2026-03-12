@@ -2277,6 +2277,10 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					}
 				}
 
+				if (abs(m_fHdrDisplayMaxNits - doviTargetDisplayNits) > 100) {
+					m_bDoviL2MetadataValid = false;
+				}
+
 				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 3) {
 						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
