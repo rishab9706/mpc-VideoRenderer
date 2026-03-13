@@ -31,55 +31,40 @@ cbuffer DolbyConstants : register(b1)
 // ==============================================================================
 // LINEAR RGB (BT.2020) TO IPTPQc2 (Dolby ST 2094-10 Space)
 // ==============================================================================
-float3 RGB_to_IPT(float3 rgb_nits)
+float3 RGB_to_ICTCP(float3 rgb_nits)
 {
-    float3 xyz;
-    xyz.x = 0.636958f * rgb_nits.r + 0.144617f * rgb_nits.g + 0.168881f * rgb_nits.b;
-    xyz.y = 0.262700f * rgb_nits.r + 0.677998f * rgb_nits.g + 0.059302f * rgb_nits.b;
-    xyz.z = 0.000000f * rgb_nits.r + 0.028073f * rgb_nits.g + 1.060985f * rgb_nits.b;
-    
-    // 2. Convert XYZ to LMS (HPE Matrix)
     float3 lms;
-    lms.x = 0.40024f * xyz.x + 0.70760f * xyz.y - 0.08081f * xyz.z;
-    lms.y = -0.22630f * xyz.x + 1.16532f * xyz.y + 0.04570f * xyz.z;
-    lms.z = 0.00000f * xyz.x + 0.00000f * xyz.y + 0.91822f * xyz.z;
+    lms.x = (1688.0f * rgb_nits.x + 2146.0f * rgb_nits.y + 262.0f * rgb_nits.z) / 4096.0f;
+    lms.y = (683.0f * rgb_nits.x + 2951.0f * rgb_nits.y + 462.0f * rgb_nits.z) / 4096.0f;
+    lms.z = (99.0f * rgb_nits.x + 309.0f * rgb_nits.y + 3688.0f * rgb_nits.z) / 4096.0f;
 
-    lms.x = sign(lms.x) * pow(abs(lms.x), 0.43f);
-    lms.y = sign(lms.y) * pow(abs(lms.y), 0.43f);
-    lms.z = sign(lms.z) * pow(abs(lms.z), 0.43f);
+    lms.x = LinearToST2084(lms.x, 10000.0f).x;
+    lms.y = LinearToST2084(lms.y, 10000.0f).x;
+    lms.z = LinearToST2084(lms.z, 10000.0f).x;
     
-    // 4. Convert compressed LMS to IPT (Ebner & Fairchild)
-    float3 ipt;
-    ipt.x = 0.4000f * lms.x + 0.4000f * lms.y + 0.2000f * lms.z;
-    ipt.y = 4.4550f * lms.x - 4.8510f * lms.y + 0.3960f * lms.z;
-    ipt.z = 0.8056f * lms.x + 0.3572f * lms.y - 1.1628f * lms.z;
+    float3 ictcp;
+    ictcp.x = (2048.0f * lms.x + 2048.0f * lms.y) / 4096.0f;
+    ictcp.y = (6610.0f * lms.x - 13613.0f * lms.y + 7003.0f * lms.z) / 4096.0f;
+    ictcp.z = (17933.0f * lms.x - 17390.0f * lms.y - 543.0f * lms.z) / 4096.0f;
     
-    return ipt;
+    return ictcp;
 }
 
-float3 IPT_to_RGB(float3 ipt)
+float3 ICTCP_to_RGB(float3 ictcp)
 {
-    // Convert IPT back to compressed LMS
-    float3 lmspq;
-    lmspq.x = 1.0f * ipt.x + 0.0975689f * ipt.y + 0.205226f * ipt.z;
-    lmspq.y = 1.0f * ipt.x - 0.1138760f * ipt.y + 0.133217f * ipt.z;
-    lmspq.z = 1.0f * ipt.x + 0.0326151f * ipt.y - 0.676887f * ipt.z;
+    float3 lms;
+    lms.x = 1.0f * ictcp.x + 0.00860904f * ictcp.y + 0.11102963f * ictcp.z;
+    lms.y = 1.0f * ictcp.x - 0.00860904f * ictcp.y - 0.11102963f * ictcp.z;
+    lms.z = 1.0f * ictcp.x + 0.56003134f * ictcp.y - 0.32062717f * ictcp.z;
     
-    lmspq.x = sign(lmspq.x) * pow(abs(lmspq.x), 1.0f / 0.43f);
-    lmspq.y = sign(lmspq.y) * pow(abs(lmspq.y), 1.0f / 0.43f);
-    lmspq.z = sign(lmspq.z) * pow(abs(lmspq.z), 1.0f / 0.43f);
+    lms.x = ST2084ToLinear(lms.x, 10000.0f).x;
+    lms.y = ST2084ToLinear(lms.y, 10000.0f).x;
+    lms.z = ST2084ToLinear(lms.z, 10000.0f).x;
 
-    // Convert LMS back to XYZ (Inverse HPE Matrix)
-    float3 xyz;
-    xyz.x = 1.859936f * lmspq.x - 1.129382f * lmspq.y + 0.219897f * lmspq.z;
-    xyz.y = 0.361191f * lmspq.x + 0.638812f * lmspq.y - 0.000006f * lmspq.z;
-    xyz.z = 0.000000f * lmspq.x + 0.000000f * lmspq.y + 1.089064f * lmspq.z;
-
-    // Convert XYZ back to Linear RGB 
     float3 rgb_nits;
-    rgb_nits.r = 1.716651f * xyz.x - 0.355671f * xyz.y - 0.253366f * xyz.z;
-    rgb_nits.g = -0.666684f * xyz.x + 1.616481f * xyz.y + 0.015768f * xyz.z;
-    rgb_nits.b = 0.017640f * xyz.x - 0.042771f * xyz.y + 0.942103f * xyz.z;
+    rgb_nits.x = 3.43660669f * lms.x - 2.50645212f * lms.y + 0.06984542f * lms.z;
+    rgb_nits.y = -0.79132956f * lms.x + 1.98360045f * lms.y - 0.19227090f * lms.z;
+    rgb_nits.z = -0.02594990f * lms.x - 0.09891371f * lms.y + 1.12486361f * lms.z;
     
     return rgb_nits;
 }
@@ -139,11 +124,11 @@ float3 ST209410Tonemap(float ipt_i)
     if (displayMaxNits >= maxCLL)
         return ipt_i;
    
-    float src_min = LinearToST2084(MasteringMinLuminanceNits, 10000.0f);
-    float src_max = LinearToST2084(maxCLL, 10000.0f);
-    float src_avg = LinearToST2084(maxFALL, 10000.0f);
-    float dst_min = LinearToST2084(0.0f, 10000.0f);
-    float dst_max = LinearToST2084(displayMaxNits, 10000.0f);
+    float src_min = LinearToST2084(MasteringMinLuminanceNits, 10000.0f).x;
+    float src_max = LinearToST2084(maxCLL, 10000.0f).x;
+    float src_avg = LinearToST2084(maxFALL, 10000.0f).x;
+    float dst_min = LinearToST2084(0.0f, 10000.0f).x;
+    float dst_max = LinearToST2084(displayMaxNits, 10000.0f).x;
 
     const float min_knee = 0.1f;
     const float max_knee = 0.8f;
@@ -155,7 +140,7 @@ float3 ST209410Tonemap(float ipt_i)
     const float dst_knee_min = lerp(dst_min, dst_max, min_knee);
     const float dst_knee_max = lerp(dst_min, dst_max, max_knee);
 
-    float src_knee = (maxFALL > 0.0f) ? src_avg : lerp(src_min, src_max, def_knee);
+    float src_knee = (maxFALL > 0.0f) ? src_avg : 1e-4f;
     src_knee = clamp(src_knee, src_knee_min, src_knee_max);
 
     float target = (src_knee - src_min) / (src_max - src_min);
@@ -167,8 +152,8 @@ float3 ST209410Tonemap(float ipt_i)
     float dst_knee = lerp(src_knee, adapted, adaptation);
     dst_knee = clamp(dst_knee, dst_knee_min, dst_knee_max);
 
-    float out_src_knee = ST2084ToLinear(src_knee, 10000.0f);
-    float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f);
+    float out_src_knee = ST2084ToLinear(src_knee, 10000.0f).x;
+    float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f).x;
 
     float x1 = MasteringMinLuminanceNits;
     float x3 = maxCLL;
@@ -200,10 +185,10 @@ float3 ST209410Tonemap(float ipt_i)
     float c3 = k * coef2;
     
     // Apply libplacebo's rational polynomial curve
-    float I_nits = pow(ipt_i, 1.0f / 0.43f);
+    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
     
     float I_mapped = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
-    return pow(I_mapped, 0.43f);
+    return LinearToST2084(I_mapped, 10000.0f);
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
@@ -227,9 +212,9 @@ float3 BT2390Tonemap(float3 color)
         return color;
 
     // Convert peaks and current pixel luminance to PQ space
-    float maxCLL_PQ = LinearToST2084(safeMaxCLL, 10000.0f);
-    float target_PQ = LinearToST2084(displayMaxNits,10000.0f);
-    float E1 = LinearToST2084(avgRGB, 10000.0f);
+    float maxCLL_PQ = LinearToST2084(safeMaxCLL, 10000.0f).x;
+    float target_PQ = LinearToST2084(displayMaxNits,10000.0f).x;
+    float E1 = LinearToST2084(avgRGB, 10000.0f).x;
 
     // Calculate BT.2390 Knee Start (KS) point
     float KS = 1.5 * target_PQ - 0.5 * maxCLL_PQ;
@@ -251,7 +236,7 @@ float3 BT2390Tonemap(float3 color)
     }
 
     // Convert the tone-mapped PQ value back to linear light
-    float linearMapped = ST2084ToLinear(E2, 10000.0f);
+    float linearMapped = ST2084ToLinear(E2, 10000.0f).x;
 
     // 8. Scale the original RGB channels equally to preserve the exact color hue
     float3 mappedColor = color * (linearMapped / avgRGB);
@@ -321,12 +306,12 @@ float4 main(PS_INPUT input) : SV_Target {
     }
     else if (sel == 6)
     {
-        float3 ipt = RGB_to_IPT(colorPreNorm.rgb);
+        float3 ipt = RGB_to_ICTCP(colorPreNorm.rgb);
         float i_orig = ipt.x;
 
         ipt.x = ST209410Tonemap(i_orig);
         
-        colorPreNorm.rgb = IPT_to_RGB(ipt);
+        colorPreNorm.rgb = ICTCP_to_RGB(ipt);
     }
     else
     {
