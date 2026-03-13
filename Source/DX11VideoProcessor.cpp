@@ -2254,7 +2254,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						frame_max_pq = pDOVIMetadata->Extensions[i].Level1.max_pq;
 						frame_min_pq = pDOVIMetadata->Extensions[i].Level1.min_pq;
 						frame_avg_pq = pDOVIMetadata->Extensions[i].Level1.avg_pq;
-						m_bDoviL1MetadataValid = true;
+						m_DoviL1MetadataValid = true;
 						break;
 					}
 				}
@@ -2273,12 +2273,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 							doviL2IndexDiff = diff;
 						}
 
-						m_bDoviL2MetadataValid = true;
+						m_DoviL2MetadataValid = true;
 					}
 				}
 
 				if (abs(m_fHdrDisplayMaxNits - doviTargetDisplayNits) > 100) {
-					m_bDoviL2MetadataValid = false;
+					m_DoviL2MetadataValid = false;
 				}
 
 				for (uint32_t i = 0; i < 32; ++i) {
@@ -2286,7 +2286,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
 						frame_min_pq_offset = pDOVIMetadata->Extensions[i].Level3.min_pq_offset - 2048;
 						frame_avg_pq_offset = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset - 2048;
-						m_bDoviL3MetadataValid = true;
+						m_DoviL3MetadataValid = true;
 						break;
 					}
 				}
@@ -2338,7 +2338,7 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				}
 
 				if (bDoviL2MetadataChanged) {
-					if (m_bDoviL2MetadataValid) {
+					if (m_DoviL2MetadataValid) {
 						m_DoviChromaWeight = trim_chroma_weight;
 						m_DoviSatGain = trim_saturation_gain;
 						m_DoviTrimOffset = trim_offset;
@@ -4227,16 +4227,16 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 	if (m_Dovi.bValid && m_Dovi.bHasMMR) {
 		str.append(L", MMR");
 	}
-	if (m_bDoviL1MetadataValid) {
+	if (m_DoviL1MetadataValid) {
 		str.append(L", L1");
 	}
-	if (m_bDoviL2MetadataValid) {
+	if (m_DoviL2MetadataValid) {
 		str.append(std::format(L", L2({}nits)", m_DoviTargetNits, m_DoviChromaWeight, m_DoviSatGain));
 	}
-	if (m_bDoviL3MetadataValid) {
+	if (m_DoviL3MetadataValid) {
 		str.append(L", L3");
 	}
-	if (m_bDoviL2MetadataValid) {
+	if (m_DoviL2MetadataValid) {
 		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nSaturation Gain : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviSatGain);
 	}
 	str.append(m_strStatsVProc);

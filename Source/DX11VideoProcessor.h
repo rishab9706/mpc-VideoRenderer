@@ -186,9 +186,9 @@ private:
 	UINT m_DoviMaxMasteringLuminance = 0;
 	UINT m_DoviMinMasteringLuminance = 0;
 	UINT m_DoviAvgContentLightLevel = 0;
-	bool m_bDoviL1MetadataValid = false;
-	bool m_bDoviL2MetadataValid = false;
-	bool m_bDoviL3MetadataValid = false;
+	bool m_DoviL1MetadataValid = false;
+	bool m_DoviL2MetadataValid = false;
+	bool m_DoviL3MetadataValid = false;
 	float m_DoviChromaWeight = 1.0f;
 	float m_DoviSatGain = 1.0f;
 	float m_DoviTrimOffset = 0.0f;

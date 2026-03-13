@@ -33,34 +33,54 @@ cbuffer DolbyConstants : register(b1)
 // ==============================================================================
 float3 RGB_to_IPT(float3 rgb_nits)
 {
-    // 1. Libplacebo RGB->LMS (HPE)
+    float3 xyz;
+    xyz.x = 0.636958f * rgb_nits.r + 0.144617f * rgb_nits.g + 0.168881f * rgb_nits.b;
+    xyz.y = 0.262700f * rgb_nits.r + 0.677998f * rgb_nits.g + 0.059302f * rgb_nits.b;
+    xyz.z = 0.000000f * rgb_nits.r + 0.028073f * rgb_nits.g + 1.060985f * rgb_nits.b;
+    
+    // 2. Convert XYZ to LMS (HPE Matrix)
     float3 lms;
-    lms.x = 0.40024f * rgb_nits.r + 0.70760f * rgb_nits.g - 0.08081f * rgb_nits.b;
-    lms.y = -0.22630f * rgb_nits.r + 1.16532f * rgb_nits.g + 0.04570f * rgb_nits.b;
-    lms.z = 0.00000f * rgb_nits.r + 0.00000f * rgb_nits.g + 0.91822f * rgb_nits.b;
+    lms.x = 0.40024f * xyz.x + 0.70760f * xyz.y - 0.08081f * xyz.z;
+    lms.y = -0.22630f * xyz.x + 1.16532f * xyz.y + 0.04570f * xyz.z;
+    lms.z = 0.00000f * xyz.x + 0.00000f * xyz.y + 0.91822f * xyz.z;
 
-    // 3. Ebner & Fairchild 1998 LMS->IPT Matrix
+    lms.x = sign(lms.x) * pow(abs(lms.x), 0.43f);
+    lms.y = sign(lms.y) * pow(abs(lms.y), 0.43f);
+    lms.z = sign(lms.z) * pow(abs(lms.z), 0.43f);
+    
+    // 4. Convert compressed LMS to IPT (Ebner & Fairchild)
     float3 ipt;
     ipt.x = 0.4000f * lms.x + 0.4000f * lms.y + 0.2000f * lms.z;
     ipt.y = 4.4550f * lms.x - 4.8510f * lms.y + 0.3960f * lms.z;
     ipt.z = 0.8056f * lms.x + 0.3572f * lms.y - 1.1628f * lms.z;
+    
     return ipt;
 }
 
 float3 IPT_to_RGB(float3 ipt)
 {
-    // 1. Ebner & Fairchild 1998 IPT->LMS Matrix (Numerically Inverted)
+    // Convert IPT back to compressed LMS
     float3 lmspq;
     lmspq.x = 1.0f * ipt.x + 0.0975689f * ipt.y + 0.205226f * ipt.z;
     lmspq.y = 1.0f * ipt.x - 0.1138760f * ipt.y + 0.133217f * ipt.z;
     lmspq.z = 1.0f * ipt.x + 0.0326151f * ipt.y - 0.676887f * ipt.z;
+    
+    lmspq.x = sign(lmspq.x) * pow(abs(lmspq.x), 1.0f / 0.43f);
+    lmspq.y = sign(lmspq.y) * pow(abs(lmspq.y), 1.0f / 0.43f);
+    lmspq.z = sign(lmspq.z) * pow(abs(lmspq.z), 1.0f / 0.43f);
 
-    // 3. Libplacebo LMS->RGB Matrix (Inverted Crosstalk matrix)
+    // Convert LMS back to XYZ (Inverse HPE Matrix)
+    float3 xyz;
+    xyz.x = 1.859936f * lmspq.x - 1.129382f * lmspq.y + 0.219897f * lmspq.z;
+    xyz.y = 0.361191f * lmspq.x + 0.638812f * lmspq.y - 0.000006f * lmspq.z;
+    xyz.z = 0.000000f * lmspq.x + 0.000000f * lmspq.y + 1.089064f * lmspq.z;
+
+    // Convert XYZ back to Linear RGB 
     float3 rgb_nits;
-    rgb_nits.r = 1.859936f * lmspq.x - 1.129382f * lmspq.y + 0.219897f * lmspq.z;
-    rgb_nits.g = 0.361191f * lmspq.x + 0.638812f * lmspq.y - 0.000006f * lmspq.z;
-    rgb_nits.b = 0.000000f * lmspq.x + 0.000000f * lmspq.y + 1.089064f * lmspq.z;
-
+    rgb_nits.r = 1.716651f * xyz.x - 0.355671f * xyz.y - 0.253366f * xyz.z;
+    rgb_nits.g = -0.666684f * xyz.x + 1.616481f * xyz.y + 0.015768f * xyz.z;
+    rgb_nits.b = 0.017640f * xyz.x - 0.042771f * xyz.y + 0.942103f * xyz.z;
+    
     return rgb_nits;
 }
 
@@ -178,13 +198,12 @@ float3 ST209410Tonemap(float ipt_i)
     float c1 = k * coef0;
     float c2 = k * coef1;
     float c3 = k * coef2;
-
-    // Transform PQ Intensity to Linear Nits
-    float I_nits = ST2084ToLinear(ipt_i, 10000.0f);
     
     // Apply libplacebo's rational polynomial curve
-    float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
-    return LinearToST2084(I_mapped_nits, 10000.0f);
+    float I_nits = pow(ipt_i, 1.0f / 0.43f);
+    
+    float I_mapped = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
+    return pow(I_mapped, 0.43f);
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
@@ -267,8 +286,8 @@ float3 MobiusTonemap(float3 color) {
 float4 main(PS_INPUT input) : SV_Target {
     // Sample texture and convert from PQ to linear
     float4 color = tex.Sample(samp, input.Tex);
-    float4 colorBT = color;
     color = ST2084ToLinear(color, 10000.0f); // Convert PQ to Linear space
+    float4 colorPreNorm = color;
 
     float effectiveMaxLum = min(MasteringMaxLuminanceNits, maxCLL);
     float fallAdjustment = min(MasteringMaxLuminanceNits / maxFALL, 1.0);
@@ -283,8 +302,8 @@ float4 main(PS_INPUT input) : SV_Target {
     color.rgb = saturate(color.rgb);
     color.rgb *= fallAdjustment;
 
-    int sel = (int) selection;
     // Select the tone mapping function based on `selection`
+    int sel = (int) selection;
     if (sel == 1) {
         color.rgb = ACESFilmTonemap(color.rgb);  // Apply ACES Tone Mapping
     }
@@ -298,22 +317,16 @@ float4 main(PS_INPUT input) : SV_Target {
         color.rgb = MobiusTonemap(color.rgb);  // Apply Möbius Tone Mapping
     }
     else if (sel == 5) {
-        colorBT.rgb = BT2390Tonemap(colorBT.rgb);
+        colorPreNorm.rgb = BT2390Tonemap(colorPreNorm.rgb);
     }
     else if (sel == 6)
     {
-        float3 ipt = RGB_to_IPT(colorBT.rgb);
+        float3 ipt = RGB_to_IPT(colorPreNorm.rgb);
         float i_orig = ipt.x;
 
         ipt.x = ST209410Tonemap(i_orig);
         
-        float3 iptTrimmed = applyDolbyTrim(ipt);
-        
-        float3 iptSat = applyDolbySatGain(iptTrimmed);
-        
-        float3 iptDesat = hullDesat(iptSat, i_orig);
-        
-        colorBT.rgb = IPT_to_RGB(iptDesat);
+        colorPreNorm.rgb = IPT_to_RGB(ipt);
     }
     else
     {
@@ -325,10 +338,11 @@ float4 main(PS_INPUT input) : SV_Target {
 
     // Convert back from linear to PQ color space
     color = LinearToST2084(color, 10000.0f);  // Convert Linear to PQ
+    colorPreNorm = LinearToST2084(colorPreNorm, 10000.0f);
     
     if (sel == 5 || sel == 6)
     {
-        return float4(colorBT.rgb, colorBT.a); // Output BT.2390 result
+        return float4(colorPreNorm.rgb, colorPreNorm.a);
     }
 
     return float4(color.rgb, color.a); // Final output
