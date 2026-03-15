@@ -26,6 +26,9 @@ cbuffer DolbyConstants : register(b1)
     float TrimSlope;
     float TrimOffset;
     float TrimPower;
+    float MaxNits;
+    float MinNits;
+    float AvgNits;
 };
 
 // ==============================================================================
@@ -69,33 +72,6 @@ float3 ICTCP_to_RGB(float3 ictcp)
     return rgb_nits;
 }
 
-float3 hullDesat(float3 ipt, float i_orig)
-{
-    float2 hull = float2(i_orig, ipt.x);
-
-    // Libplacebo's custom polynomial smoothing curve
-    hull = ((hull - 6.0f) * hull + 9.0f) * hull;
-
-    ipt.yz *= min(i_orig / max(1e-6f, ipt.x), hull.y / max(1e-6f, hull.x));
-    
-    return ipt;
-}
-
-float3 applyDolbySatGain(float3 ipt)
-{
-    ipt.yz *= SaturationGain;
-    
-    return ipt;
-}
-
-float3 applyDolbyTrim(float3 ipt)
-{
-    // TRIM CURVE: Apply a custom curve to the intensity channel to fine-tune the overall contrast and brightness response.
-    ipt.x = pow(ipt.x * TrimSlope + TrimOffset, TrimPower);
-    
-    return ipt;
-}
-
 // ✅ ACES RRT + ODT Implementation
 float3 RRTAndODTFit(float3 color)
 {
@@ -119,14 +95,14 @@ float pl_smoothstep(float edge0, float edge1, float x)
 }
 
 // --- ST 2094-10 EETF Tone Mapping Function
-float3 ST209410Tonemap(float ipt_i)
+float3 ST209410Tonemap(float3 color)
 {
-    if (displayMaxNits >= maxCLL)
-        return ipt_i;
+    if (displayMaxNits >= MaxNits)
+        return color;
    
-    float src_min = LinearToST2084(MasteringMinLuminanceNits, 10000.0f).x;
-    float src_max = LinearToST2084(maxCLL, 10000.0f).x;
-    float src_avg = LinearToST2084(maxFALL, 10000.0f).x;
+    float src_min = LinearToST2084(MinNits, 10000.0f).x;
+    float src_max = LinearToST2084(MaxNits, 10000.0f).x;
+    float src_avg = LinearToST2084(AvgNits, 10000.0f).x;
     float dst_min = LinearToST2084(0.0f, 10000.0f).x;
     float dst_max = LinearToST2084(displayMaxNits, 10000.0f).x;
 
@@ -155,8 +131,8 @@ float3 ST209410Tonemap(float ipt_i)
     float out_src_knee = ST2084ToLinear(src_knee, 10000.0f).x;
     float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f).x;
 
-    float x1 = MasteringMinLuminanceNits;
-    float x3 = maxCLL;
+    float x1 = MinNits;
+    float x3 = MaxNits;
     float x2 = out_src_knee;
 
     float y1 = 0.0f;
@@ -184,11 +160,36 @@ float3 ST209410Tonemap(float ipt_i)
     float c2 = k * coef1;
     float c3 = k * coef2;
     
-    // Apply libplacebo's rational polynomial curve
-    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
+    float3 D;
+    D.r = (c1 + c2 * color.r) / (1.0f + c3 * color.r);
+    D.g = (c1 + c2 * color.g) / (1.0f + c3 * color.g);
+    D.b = (c1 + c2 * color.b) / (1.0f + c3 * color.b);
     
-    float I_mapped = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
-    return LinearToST2084(I_mapped, 10000.0f);
+    float3 D_norm;
+    D_norm.r = LinearToST2084(D.r, 10000.0f).x;
+    D_norm.g = LinearToST2084(D.g, 10000.0f).x;
+    D_norm.b = LinearToST2084(D.b, 10000.0f).x;
+    
+    float3 F_norm;
+    F_norm.r = pow((D_norm.r * TrimSlope) + TrimOffset, TrimPower);
+    F_norm.g = pow((D_norm.g * TrimSlope) + TrimOffset, TrimPower);
+    F_norm.b = pow((D_norm.b * TrimSlope) + TrimOffset, TrimPower);
+    
+    float Y = 0.2627f * F_norm.r + 0.6780f * F_norm.g + 0.0593f * F_norm.b;
+    Y = max(Y, 1e-6f);
+
+    float chroma_factor = 1.0f + ChromaWeight;
+    float3 G_norm;
+    G_norm.r = F_norm.r * pow(max(1e-6f, chroma_factor * (F_norm.r / Y)), SaturationGain);
+    G_norm.g = F_norm.g * pow(max(1e-6f, chroma_factor * (F_norm.g / Y)), SaturationGain);
+    G_norm.b = F_norm.b * pow(max(1e-6f, chroma_factor * (F_norm.b / Y)), SaturationGain);
+
+    float3 G;
+    G.r = ST2084ToLinear(G_norm.r, 10000.0f).x;
+    G.g = ST2084ToLinear(G_norm.g, 10000.0f).x;
+    G.b = ST2084ToLinear(G_norm.b, 10000.0f).x;
+    
+    return G;
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
@@ -213,7 +214,7 @@ float3 BT2390Tonemap(float3 color)
 
     // Convert peaks and current pixel luminance to PQ space
     float maxCLL_PQ = LinearToST2084(safeMaxCLL, 10000.0f).x;
-    float target_PQ = LinearToST2084(displayMaxNits,10000.0f).x;
+    float target_PQ = LinearToST2084(displayMaxNits, 10000.0f).x;
     float E1 = LinearToST2084(avgRGB, 10000.0f).x;
 
     // Calculate BT.2390 Knee Start (KS) point
@@ -306,12 +307,7 @@ float4 main(PS_INPUT input) : SV_Target {
     }
     else if (sel == 6)
     {
-        float3 ipt = RGB_to_ICTCP(colorPreNorm.rgb);
-        float i_orig = ipt.x;
-
-        ipt.x = ST209410Tonemap(i_orig);
-        
-        colorPreNorm.rgb = ICTCP_to_RGB(ipt);
+        colorPreNorm.rgb = ST209410Tonemap(colorPreNorm.rgb);
     }
     else
     {

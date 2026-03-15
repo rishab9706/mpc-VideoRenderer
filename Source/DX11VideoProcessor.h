@@ -185,12 +185,14 @@ private:
 
 	UINT m_DoviMaxMasteringLuminance = 0;
 	UINT m_DoviMinMasteringLuminance = 0;
-	UINT m_DoviAvgContentLightLevel = 0;
+	float m_DoviMaxNits = 0;
+	float m_DoviAvgNits = 0;
+	float m_DoviMinNits = 0;
 	bool m_DoviL1MetadataValid = false;
 	bool m_DoviL2MetadataValid = false;
 	bool m_DoviL3MetadataValid = false;
-	float m_DoviChromaWeight = 1.0f;
-	float m_DoviSatGain = 1.0f;
+	float m_DoviChromaWeight = 0.0f;
+	float m_DoviSatGain = 0.0f;
 	float m_DoviTrimOffset = 0.0f;
 	float m_DoviTrimPower = 1.0f;
 	float m_DoviTrimSlope = 1.0f;
@@ -227,7 +229,7 @@ private:
 	void SetShaderConvertColorParams();
 	void SetShaderLuminanceParams();
 	void SetHDR10ShaderParams(float, float, float, float, float, int);
-	void SetDolbyVisionDynamicParams(float, float, float, float, float);
+	void SetDolbyVisionDynamicParams(float, float, float, float, float, float, float, float);
 
 	HRESULT SetShaderDoviCurvesPoly();
 	HRESULT SetShaderDoviCurves();

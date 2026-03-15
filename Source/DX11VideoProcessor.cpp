@@ -934,9 +934,9 @@ void CDX11VideoProcessor::SetHDR10ShaderParams(float masteringMinLuminanceNits, 
 	}
 }
 
-void CDX11VideoProcessor::SetDolbyVisionDynamicParams(float cw, float sg, float slope, float offset, float power)
+void CDX11VideoProcessor::SetDolbyVisionDynamicParams(float cw, float sg, float slope, float offset, float power, float MaxNits, float MinNits, float AvgNits)
 {
-	FLOAT dynamic_cbuffer[] = { cw, sg, slope, offset, power, 0.0f, 0.0f, 0.0f };
+	FLOAT dynamic_cbuffer[] = { cw, sg, slope, offset, power, MaxNits, MinNits, AvgNits };
 
 	if (m_pDoViDynamicConstants)
 	{
@@ -1830,6 +1830,14 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 				DLogIf(m_pPSCorrection, L"CDX11VideoProcessor::InitMediaType() m_pPSCorrection('{}') created", m_strCorrection);
 				SetShaderLuminanceParams();
 			}
+
+			if (m_bHdrSupport && m_bHdrLocalToneMapping)
+			{
+				EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSHDR10ToneMapping, IDF_PS_11_FIX_HDR10));
+				DLogIf(m_pPSHDR10ToneMapping, L"CDX11VideoProcessor::InitMediaType() m_pPSHDR10ToneMapping(type: '{}') created", m_iHdrLocalToneMappingType);
+				SetHDR10ShaderParams(0, 0, 0, 0, 0, 0);
+				SetDolbyVisionDynamicParams(0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
+			}
 		}
 		else {
 			ReleaseVP();
@@ -1846,7 +1854,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 				EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSHDR10ToneMapping, IDF_PS_11_FIX_HDR10));
 				DLogIf(m_pPSHDR10ToneMapping, L"CDX11VideoProcessor::InitMediaType() m_pPSHDR10ToneMapping(type: '{}') created", m_iHdrLocalToneMappingType);
 				SetHDR10ShaderParams(0, 0, 0, 0, 0, 0);
-				SetDolbyVisionDynamicParams(1.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+				SetDolbyVisionDynamicParams(0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 			}
 			SetShaderConvertColorParams();
 			SetShaderLuminanceParams();
@@ -2216,19 +2224,21 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						&pDOVIMetadata->Mapping.curves,
 						sizeof(MediaSideDataDOVIMetadata::Mapping.curves)
 					) != 0);
+
 				// Fallback to static L0 values
-				uint16_t frame_max_pq = pDOVIMetadata->ColorMetadata.source_max_pq;
-				uint16_t frame_min_pq = pDOVIMetadata->ColorMetadata.source_min_pq;
+				m_DoviMaxMasteringLuminance = pDOVIMetadata->ColorMetadata.source_max_pq;
+				m_DoviMinMasteringLuminance = pDOVIMetadata->ColorMetadata.source_min_pq;
+				uint16_t frame_max_pq = m_DoviMaxMasteringLuminance;
+				uint16_t frame_min_pq = m_DoviMinMasteringLuminance;
 				uint16_t frame_avg_pq = 0;
 				uint16_t frame_max_pq_offset = 0;
 				uint16_t frame_min_pq_offset = 0;
 				uint16_t frame_avg_pq_offset = 0;
 				float trim_chroma_weight = 0.0f;
-				float trim_saturation_gain = 1.0f;
+				float trim_saturation_gain = 0.0f;
 				float trim_offset = 0.0f;
 				float trim_slope = 1.0f;
 				float trim_power = 1.0f;
-				int doviL2IndexDiff = 0;
 				uint16_t doviTargetDisplayNits = 0;
 
 				// based on libplacebo source code
@@ -2248,6 +2258,102 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					return x;
 					};
 
+				auto linear_to_pq = [](float y) {
+					y /= 10000.0f;
+					y = fmaxf(y, 0.0f);
+					y = powf(y, PQ_M1);
+					y = (PQ_C1 + PQ_C2 * y) / (1.0f + PQ_C3 * y);
+					y = powf(y, PQ_M2);
+					return y;
+					};
+
+				float display_pq = linear_to_pq(m_fHdrDisplayMaxNits);
+				float master_pq = pDOVIMetadata->ColorMetadata.source_max_pq / 4095.0f;
+				for (int i = 0; i < 32; ++i) {
+					if (pDOVIMetadata->Extensions[i].level == 6) {
+						master_pq = pDOVIMetadata->Extensions[i].Level6.max_luminance / 4095.0f;
+						break;
+					}
+				}
+
+				int lower_index = -1;
+				int upper_index = -1;
+
+				float closest_lower_dist = 1.0f;
+				float closest_upper_dist = 1.0f;
+
+				// 2. Loop through all Level 2 extensions in this frame
+				for (int i = 0; i < 32; ++i) {
+					if (pDOVIMetadata->Extensions[i].level == 2) {
+
+						float target_pq = pDOVIMetadata->Extensions[i].Level2.target_max_pq / 4095.0f;
+
+						if (target_pq <= display_pq) {
+							float dist = display_pq - target_pq;
+							if (dist < closest_lower_dist) {
+								closest_lower_dist = dist;
+								lower_index = i;
+							}
+						}
+						else if (target_pq > display_pq) {
+							float dist = target_pq - display_pq;
+							if (dist < closest_upper_dist) {
+								closest_upper_dist = dist;
+								upper_index = i;
+							}
+						}
+						m_DoviL2MetadataValid = true;
+					}
+				}
+
+				if (m_DoviL2MetadataValid) {
+					// SCENARIO A: Display is BETWEEN two targets
+					if (lower_index != -1 && upper_index != -1) {
+						float lower_pq = pDOVIMetadata->Extensions[lower_index].Level2.target_max_pq / 4095.0f;
+						float upper_pq = pDOVIMetadata->Extensions[upper_index].Level2.target_max_pq / 4095.0f;
+
+						float weight = 0.0f;
+						if (upper_pq != lower_pq) weight = (display_pq - lower_pq) / (upper_pq - lower_pq);
+						weight = std::clamp(weight, 0.0f, 1.0f);
+
+						trim_slope = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_slope, pDOVIMetadata->Extensions[upper_index].Level2.trim_slope, weight);
+						trim_offset = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_offset, pDOVIMetadata->Extensions[upper_index].Level2.trim_offset, weight);
+						trim_power = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_power, pDOVIMetadata->Extensions[upper_index].Level2.trim_power, weight);
+						trim_chroma_weight = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_chroma_weight, pDOVIMetadata->Extensions[upper_index].Level2.trim_chroma_weight, weight);
+						trim_saturation_gain = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_saturation_gain, pDOVIMetadata->Extensions[upper_index].Level2.trim_saturation_gain, weight);
+					}
+
+					// SCENARIO B: Display is BRIGHTER than all targets (Interpolate towards Master/Neutral)
+					else if (lower_index != -1 && upper_index == -1) {
+						float lower_pq = pDOVIMetadata->Extensions[lower_index].Level2.target_max_pq / 4095.0f;
+
+						float weight = 0.0f;
+						if (master_pq > lower_pq) weight = (display_pq - lower_pq) / (master_pq - lower_pq);
+						weight = std::clamp(weight, 0.0f, 1.0f);
+
+						trim_slope = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_slope, 2048, weight);
+						trim_offset = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_offset, 2048, weight);
+						trim_power = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_power, 2048, weight);
+						trim_chroma_weight = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_chroma_weight, 2048, weight);
+						trim_saturation_gain = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_saturation_gain, 2048, weight);
+					}
+
+					// SCENARIO C: Display is DIMMER than all targets (Clamp to the lowest available target)
+					else if (lower_index == -1 && upper_index != -1) {
+						trim_slope = pDOVIMetadata->Extensions[upper_index].Level2.trim_slope;
+						trim_offset = pDOVIMetadata->Extensions[upper_index].Level2.trim_offset;
+						trim_power = pDOVIMetadata->Extensions[upper_index].Level2.trim_power;
+						trim_chroma_weight = pDOVIMetadata->Extensions[upper_index].Level2.trim_chroma_weight;
+						trim_saturation_gain = pDOVIMetadata->Extensions[upper_index].Level2.trim_saturation_gain;
+					}
+
+					trim_slope = (trim_slope / 4096.0f) + 0.5f;
+					trim_offset = (trim_offset / 4096.0f) - 0.5f;
+					trim_power = (trim_power / 4096.0f) + 0.5f;
+					trim_chroma_weight = (trim_chroma_weight / 4096.0f) - 0.5f;
+					trim_saturation_gain = (trim_saturation_gain / 4096.0f) - 0.5f;
+				}
+
 				// Extract dynamic L1 values if available
 				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 1) {
@@ -2260,28 +2366,6 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				}
 
 				for (uint32_t i = 0; i < 32; ++i) {
-					if (pDOVIMetadata->Extensions[i].level == 2) {
-						int diff = abs(m_fHdrDisplayMaxNits - (pl_hdr_rescale(pDOVIMetadata->Extensions[i].Level2.target_max_pq / 4095.f)));
-
-						if (diff < doviL2IndexDiff || doviL2IndexDiff == 0) {
-							trim_chroma_weight = (pDOVIMetadata->Extensions[i].Level2.trim_chroma_weight / 4096.0f) + 0.5f;
-							trim_saturation_gain = (pDOVIMetadata->Extensions[i].Level2.trim_saturation_gain / 2048.0f);
-							trim_offset = (pDOVIMetadata->Extensions[i].Level2.trim_offset - 2048) / 4096.0f;
-							trim_slope = (pDOVIMetadata->Extensions[i].Level2.trim_slope / 2048.0f);
-							trim_power = (pDOVIMetadata->Extensions[i].Level2.trim_power / 4096.0f) + 0.5f;
-							doviTargetDisplayNits = pl_hdr_rescale(pDOVIMetadata->Extensions[i].Level2.target_max_pq / 4095.f);
-							doviL2IndexDiff = diff;
-						}
-
-						m_DoviL2MetadataValid = true;
-					}
-				}
-
-				if (abs(m_fHdrDisplayMaxNits - doviTargetDisplayNits) > 100) {
-					m_DoviL2MetadataValid = false;
-				}
-
-				for (uint32_t i = 0; i < 32; ++i) {
 					if (pDOVIMetadata->Extensions[i].level == 3) {
 						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
 						frame_min_pq_offset = pDOVIMetadata->Extensions[i].Level3.min_pq_offset - 2048;
@@ -2291,21 +2375,33 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					}
 				}
 
-				UINT targetMaxNits = static_cast<UINT>(pl_hdr_rescale(frame_max_pq / 4095.f));
-				UINT targetMinNits = static_cast<UINT>(pl_hdr_rescale(frame_min_pq / 4095.f));
-				UINT targetAvgNits = static_cast<UINT>(pl_hdr_rescale(frame_avg_pq / 4095.f));
-				int targetMaxNitsOffset = static_cast<int>(pl_hdr_rescale(frame_max_pq_offset / 4095.f));
-				int targetMinNitsOffset = static_cast<int>(pl_hdr_rescale(frame_min_pq_offset / 4095.f));
-				int targetAvgNitsOffset = static_cast<int>(pl_hdr_rescale(frame_avg_pq_offset / 4095.f));
+				float FrameMaxNits = pl_hdr_rescale(frame_max_pq / 4095.f);
+				float FrameMinNits = pl_hdr_rescale(frame_min_pq / 4095.f);
+				float FrameAvgNits = pl_hdr_rescale(frame_avg_pq / 4095.f);
+				float FrameMaxNitsOffset = pl_hdr_rescale(frame_max_pq_offset / 4095.f);
+				float FrameMinNitsOffset = pl_hdr_rescale(frame_min_pq_offset / 4095.f);
+				float FrameAvgNitsOffset = pl_hdr_rescale(frame_avg_pq_offset / 4095.f);
 
-				targetMaxNits = targetMaxNits + targetMaxNitsOffset;
-				targetAvgNits = targetAvgNits + targetAvgNitsOffset;
-				targetMinNits = targetMinNits + targetMinNitsOffset;
-				m_DoviTargetNits = doviTargetDisplayNits;
+				FrameMaxNits = FrameMaxNits + FrameMaxNitsOffset;
+				FrameAvgNits = FrameAvgNits + FrameAvgNitsOffset;
+				FrameMinNits = FrameMinNits + FrameMinNitsOffset;
+				m_DoviTargetNits = m_fHdrDisplayMaxNits;
 
-				const bool bMasteringLuminanceChanged = !m_Dovi.bValid || (m_DoviMaxMasteringLuminance != targetMaxNits) || (m_DoviMinMasteringLuminance != targetMinNits) || (m_DoviAvgContentLightLevel != targetAvgNits);
+				m_DoviMaxNits = FrameMaxNits;
+				m_DoviMinNits = FrameMinNits;
+				m_DoviAvgNits = FrameAvgNits;
+				SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
+				UpdateStatsStatic();
 
-				const bool bDoviL2MetadataChanged = !m_Dovi.bValid || (m_DoviChromaWeight != trim_chroma_weight) || (m_DoviSatGain != trim_saturation_gain) || (m_DoviTrimOffset != trim_offset) || (m_DoviTrimSlope != trim_slope) || (m_DoviTrimPower != trim_power);
+				if (m_DoviL2MetadataValid) {
+					m_DoviChromaWeight = trim_chroma_weight;
+					m_DoviSatGain = trim_saturation_gain;
+					m_DoviTrimOffset = trim_offset;
+					m_DoviTrimSlope = trim_slope;
+					m_DoviTrimPower = trim_power;
+					SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
+					UpdateStatsStatic();
+				}
 
 				bool bMMRChanged = false;
 				if (bMappingCurvesChanged) {
@@ -2328,26 +2424,6 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				memcpy(&m_Dovi.msd, pDOVIMetadata, sizeof(MediaSideDataDOVIMetadata));
 				const bool doviStateChanged = !m_Dovi.bValid;
 				m_Dovi.bValid = true;
-
-				if (bMasteringLuminanceChanged) {
-					// Apply the dynamically calculated L1 scene Nits
-					m_DoviMaxMasteringLuminance = targetMaxNits;
-					m_DoviMinMasteringLuminance = targetMinNits;
-					m_DoviAvgContentLightLevel = targetAvgNits;
-					UpdateStatsStatic();
-				}
-
-				if (bDoviL2MetadataChanged) {
-					if (m_DoviL2MetadataValid) {
-						m_DoviChromaWeight = trim_chroma_weight;
-						m_DoviSatGain = trim_saturation_gain;
-						m_DoviTrimOffset = trim_offset;
-						m_DoviTrimSlope = trim_slope;
-						m_DoviTrimPower = trim_power;
-						SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower);
-						UpdateStatsStatic();
-					}
-				}
 
 				if (m_D3D11VP.IsReady()) {
 					InitMediaType(&m_pFilter->m_inputMT);
@@ -2548,19 +2624,9 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	m_RenderStats.paintticks = tick3 - tick1;
 
 	if (m_pDXGISwapChain4) {
-		if (m_Dovi.bValid && !m_bHdrPassthrough) {
-			// For Profile 5, inherit the valid flag and generated primaries from the previous frame
-			if (!m_hdr10.bValid && m_lastHdr10.bValid) {
-				m_hdr10.bValid = true;
-				m_hdr10.hdr10 = m_lastHdr10.hdr10;
-			}
-
-			// Apply the dynamic frame-by-frame boundaries
-			m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
-			m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance*10000;
-			m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
-			m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviAvgContentLightLevel;
-		}
+		m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
+		m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
+		m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
 
 		const DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 
@@ -2627,7 +2693,6 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 				m_lastHdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
 				m_lastHdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance * 10000;
 				m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
-				m_hdr10.hdr10.MaxFrameAverageLightLevel = m_DoviAvgContentLightLevel;
 
 				if (m_bHdrPassthrough)
 				{
@@ -3428,7 +3493,7 @@ HRESULT CDX11VideoProcessor::GetCurentImage(long *pDIBImage)
 			{
 				EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSHDR10ToneMapping, IDF_PS_11_FIX_HDR10));
 				SetHDR10ShaderParams(0, 0, 0, 0, 0, 0);
-				SetDolbyVisionDynamicParams(1.0f, 1.0f, 1.0f, 0.0f, 1.0f);
+				SetDolbyVisionDynamicParams(0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f);
 			}
 		} else {
 			m_bHdrPassthrough = false;
@@ -4140,11 +4205,6 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 				if (m_bVPUseRTXVideoHDR) {
 					m_strStatsHDR.append(L", RTX Video HDR*");
 				}
-				if (m_lastHdr10.bValid) {
-					m_strStatsHDR += std::format(L"\n Mastering {}/{} nits", m_lastHdr10.hdr10.MinMasteringLuminance / 10000, m_lastHdr10.hdr10.MaxMasteringLuminance);
-					m_strStatsHDR += std::format(L", maxCLL {} nits", m_lastHdr10.hdr10.MaxContentLightLevel);
-					m_strStatsHDR += std::format(L", maxFALL {} nits", m_lastHdr10.hdr10.MaxFrameAverageLightLevel);
-				}
 				if (m_hdr10.bValid) {
 					m_strStatsHDR += std::format(L"\n Mastering {}/{} nits", m_hdr10.hdr10.MinMasteringLuminance / 10000, m_hdr10.hdr10.MaxMasteringLuminance);
 					m_strStatsHDR += std::format(L", maxCLL {} nits", m_hdr10.hdr10.MaxContentLightLevel);
@@ -4236,8 +4296,11 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 	if (m_DoviL3MetadataValid) {
 		str.append(L", L3");
 	}
+	if (m_Dovi.bValid) {
+		str += std::format(L"\nMax Nits : {}, Min Nits : {}, Avg Nits : {}", m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
+	}
 	if (m_DoviL2MetadataValid) {
-		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nSaturation Gain : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviSatGain);
+		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nSaturation Gain : {} \nChroma Weight : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviSatGain, m_DoviChromaWeight);
 	}
 	str.append(m_strStatsVProc);
 
