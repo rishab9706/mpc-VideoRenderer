@@ -2225,13 +2225,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						sizeof(MediaSideDataDOVIMetadata::Mapping.curves)
 					) != 0);
 
-				// Fallback to static L0 values
 				uint16_t frame_max_pq = 0;
 				uint16_t frame_min_pq = 0;
 				uint16_t frame_avg_pq = 0;
-				uint16_t frame_max_pq_offset = 0;
-				uint16_t frame_min_pq_offset = 0;
-				uint16_t frame_avg_pq_offset = 0;
+				int frame_max_pq_offset = 0;
+				int frame_min_pq_offset = 0;
+				int frame_avg_pq_offset = 0;
 				float trim_chroma_weight = 0.0f;
 				float trim_saturation_gain = 0.0f;
 				float trim_offset = 0.0f;
@@ -2370,16 +2369,10 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					}
 				}
 
-				float FrameMaxNits = pl_hdr_rescale(frame_max_pq / 4095.f);
-				float FrameMinNits = pl_hdr_rescale(frame_min_pq / 4095.f);
-				float FrameAvgNits = pl_hdr_rescale(frame_avg_pq / 4095.f);
-				float FrameMaxNitsOffset = pl_hdr_rescale(frame_max_pq_offset / 4095.f);
-				float FrameMinNitsOffset = pl_hdr_rescale(frame_min_pq_offset / 4095.f);
-				float FrameAvgNitsOffset = pl_hdr_rescale(frame_avg_pq_offset / 4095.f);
-
-				FrameMaxNits = FrameMaxNits + FrameMaxNitsOffset;
-				FrameAvgNits = FrameAvgNits + FrameAvgNitsOffset;
-				FrameMinNits = FrameMinNits + FrameMinNitsOffset;
+				float FrameMaxNits = pl_hdr_rescale((frame_max_pq + frame_max_pq_offset) / 4095.f);
+				float FrameMinNits = pl_hdr_rescale((frame_min_pq + frame_min_pq_offset) / 4095.f);
+				float FrameAvgNits = pl_hdr_rescale((frame_avg_pq + frame_avg_pq_offset) / 4095.f);
+				
 				m_DoviTargetNits = m_fHdrDisplayMaxNits;
 
 				m_DoviMaxNits = FrameMaxNits;
@@ -4288,10 +4281,10 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 		str.append(L", L3");
 	}
 	if (m_Dovi.bValid) {
-		str += std::format(L"\nMax Nits : {}, Min Nits : {}, Avg Nits : {}", m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
+		str += std::format(L"\nMax Nits : {}, Min Nits : {}, Avg Nits : {}", std::round(m_DoviMaxNits), std::round(m_DoviMinNits), std::round(m_DoviAvgNits));
 	}
 	if (m_DoviL2MetadataValid) {
-		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nSaturation Gain : {} \nChroma Weight : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviSatGain, m_DoviChromaWeight);
+		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower);
 	}
 	str.append(m_strStatsVProc);
 
