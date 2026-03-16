@@ -94,11 +94,17 @@ float pl_smoothstep(float edge0, float edge1, float x)
     return t * t * (3.0f - 2.0f * t);
 }
 
+float applyDoviSOP(float ipt_i)
+{
+    ipt_i = pow((ipt_i * TrimSlope) + TrimOffset, TrimPower);
+    return ipt_i;
+}
+
 // --- ST 2094-10 EETF Tone Mapping Function
-float3 ST209410Tonemap(float3 color)
+float ST209410Tonemap(float ipt_i)
 {
     if (displayMaxNits >= MaxNits)
-        return color;
+        return ipt_i;
    
     float src_min = LinearToST2084(MinNits, 10000.0f).x;
     float src_max = LinearToST2084(MaxNits, 10000.0f).x;
@@ -160,17 +166,11 @@ float3 ST209410Tonemap(float3 color)
     float c2 = k * coef1;
     float c3 = k * coef2;
     
-    float3 ipt = RGB_to_ICTCP(color);
-    float I = ipt.x;
-    float I_nits = ST2084ToLinear(I, 10000.0f).x;
+    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
     float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
     float I_mapped = LinearToST2084(I_mapped_nits, 10000.0f).x;
     
-    I_mapped = pow((I_mapped * TrimSlope) + TrimOffset, TrimPower);
-    ipt.x = I_mapped;
-    
-    color = ICTCP_to_RGB(ipt);
-    return color;
+    return I_mapped;
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
@@ -288,7 +288,11 @@ float4 main(PS_INPUT input) : SV_Target {
     }
     else if (sel == 6)
     {
-        colorPreNorm.rgb = ST209410Tonemap(colorPreNorm.rgb);
+        float3 ipt = RGB_to_ICTCP(colorPreNorm.rgb);
+        float ipt_tonemapped = ST209410Tonemap(ipt.x);
+        float ipt_sop = applyDoviSOP(ipt_tonemapped);
+        ipt.x = ipt_sop;
+        colorPreNorm.rgb = ICTCP_to_RGB(ipt);
     }
     else
     {
