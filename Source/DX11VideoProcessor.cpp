@@ -2226,10 +2226,8 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					) != 0);
 
 				// Fallback to static L0 values
-				m_DoviMaxMasteringLuminance = pDOVIMetadata->ColorMetadata.source_max_pq;
-				m_DoviMinMasteringLuminance = pDOVIMetadata->ColorMetadata.source_min_pq;
-				uint16_t frame_max_pq = m_DoviMaxMasteringLuminance;
-				uint16_t frame_min_pq = m_DoviMinMasteringLuminance;
+				uint16_t frame_max_pq = 0;
+				uint16_t frame_min_pq = 0;
 				uint16_t frame_avg_pq = 0;
 				uint16_t frame_max_pq_offset = 0;
 				uint16_t frame_min_pq_offset = 0;
@@ -2267,15 +2265,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 					return y;
 					};
 
+				m_DoviMaxMasteringLuminance = pl_hdr_rescale(pDOVIMetadata->ColorMetadata.source_max_pq / 4095.0f);
+				m_DoviMinMasteringLuminance = pl_hdr_rescale(pDOVIMetadata->ColorMetadata.source_min_pq / 4095.0f);
+
 				float display_pq = linear_to_pq(m_fHdrDisplayMaxNits);
 				float master_pq = pDOVIMetadata->ColorMetadata.source_max_pq / 4095.0f;
-				for (int i = 0; i < 32; ++i) {
-					if (pDOVIMetadata->Extensions[i].level == 6) {
-						master_pq = pDOVIMetadata->Extensions[i].Level6.max_luminance / 4095.0f;
-						break;
-					}
-				}
-
+				
 				int lower_index = -1;
 				int upper_index = -1;
 
@@ -2624,10 +2619,6 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	m_RenderStats.paintticks = tick3 - tick1;
 
 	if (m_pDXGISwapChain4) {
-		m_hdr10.hdr10.MaxMasteringLuminance = m_DoviMaxMasteringLuminance;
-		m_hdr10.hdr10.MinMasteringLuminance = m_DoviMinMasteringLuminance;
-		m_hdr10.hdr10.MaxContentLightLevel = m_DoviMaxMasteringLuminance;
-
 		const DXGI_COLOR_SPACE_TYPE colorSpace = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
 
 		if (m_currentSwapChainColorSpace != colorSpace) {
