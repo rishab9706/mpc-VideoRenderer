@@ -134,15 +134,15 @@ float ST209410Tonemap(float ipt_i)
     float dst_knee = lerp(src_knee, adapted, adaptation);
     dst_knee = clamp(dst_knee, dst_knee_min, dst_knee_max);
 
-    float out_src_knee = ST2084ToLinear(src_knee, 10000.0f).x;
-    float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f).x;
+    float out_src_knee = src_knee;
+    float out_dst_knee = dst_knee;
 
-    float x1 = MinNits;
-    float x3 = MaxNits;
+    float x1 = LinearToST2084(MinNits, 10000.0f).x;
+    float x3 = LinearToST2084(MaxNits, 10000.0f).x;
     float x2 = out_src_knee;
 
     float y1 = 0.0f;
-    float y3 = displayMaxNits;
+    float y3 = LinearToST2084(displayMaxNits, 10000.0f).x;
     float y2 = out_dst_knee;
 
     // Build the 3x3 cmat array
@@ -166,9 +166,7 @@ float ST209410Tonemap(float ipt_i)
     float c2 = k * coef1;
     float c3 = k * coef2;
     
-    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
-    float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
-    float I_mapped = LinearToST2084(I_mapped_nits, 10000.0f).x;
+    float I_mapped = (c1 + c2 * ipt_i) / (1.0f + c3 * ipt_i);
     
     return I_mapped;
 }
