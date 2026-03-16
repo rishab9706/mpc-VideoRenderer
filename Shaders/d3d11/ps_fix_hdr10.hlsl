@@ -160,36 +160,17 @@ float3 ST209410Tonemap(float3 color)
     float c2 = k * coef1;
     float c3 = k * coef2;
     
-    float3 D;
-    D.r = (c1 + c2 * color.r) / (1.0f + c3 * color.r);
-    D.g = (c1 + c2 * color.g) / (1.0f + c3 * color.g);
-    D.b = (c1 + c2 * color.b) / (1.0f + c3 * color.b);
+    float3 ipt = RGB_to_ICTCP(color);
+    float I = ipt.x;
+    float I_nits = ST2084ToLinear(I, 10000.0f).x;
+    float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
+    float I_mapped = LinearToST2084(I_mapped_nits, 10000.0f).x;
     
-    float3 D_norm;
-    D_norm.r = LinearToST2084(D.r, 10000.0f).x;
-    D_norm.g = LinearToST2084(D.g, 10000.0f).x;
-    D_norm.b = LinearToST2084(D.b, 10000.0f).x;
+    I_mapped = pow((I_mapped * TrimSlope) + TrimOffset, TrimPower);
+    ipt.x = I_mapped;
     
-    float3 F_norm;
-    F_norm.r = pow((D_norm.r * TrimSlope) + TrimOffset, TrimPower);
-    F_norm.g = pow((D_norm.g * TrimSlope) + TrimOffset, TrimPower);
-    F_norm.b = pow((D_norm.b * TrimSlope) + TrimOffset, TrimPower);
-    
-    float Y = 0.2627f * F_norm.r + 0.6780f * F_norm.g + 0.0593f * F_norm.b;
-    Y = max(Y, 1e-6f);
-
-    float chroma_factor = 1.0f + ChromaWeight;
-    float3 G_norm;
-    G_norm.r = F_norm.r * pow(max(1e-6f, chroma_factor * (F_norm.r / Y)), SaturationGain);
-    G_norm.g = F_norm.g * pow(max(1e-6f, chroma_factor * (F_norm.g / Y)), SaturationGain);
-    G_norm.b = F_norm.b * pow(max(1e-6f, chroma_factor * (F_norm.b / Y)), SaturationGain);
-
-    float3 G;
-    G.r = ST2084ToLinear(G_norm.r, 10000.0f).x;
-    G.g = ST2084ToLinear(G_norm.g, 10000.0f).x;
-    G.b = ST2084ToLinear(G_norm.b, 10000.0f).x;
-    
-    return G;
+    color = ICTCP_to_RGB(ipt);
+    return color;
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
