@@ -123,6 +123,9 @@
     <ClCompile Include="SubPic\DX11SubPic.cpp">
       <Filter>SubPic</Filter>
     </ClCompile>
+    <ClCompile Include="DolbyVisionParser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h">
@@ -241,6 +244,9 @@
     </ClInclude>
     <ClInclude Include="SubPic\DX11SubPic.h">
       <Filter>SubPic</Filter>
+    </ClInclude>
+    <ClInclude Include="DolbyVisionParser.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
