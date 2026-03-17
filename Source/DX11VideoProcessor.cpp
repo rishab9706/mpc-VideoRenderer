@@ -4159,7 +4159,7 @@ HRESULT CDX11VideoProcessor::DrawStats(ID3D11Texture2D* pRenderTarget)
 		str += std::format(L"\nMax Nits : {}, Min Nits : {}, Avg Nits : {}", std::round(m_DoviMaxNits), std::round(m_DoviMinNits), std::round(m_DoviAvgNits));
 	}
 	if (m_DoviL2MetadataValid) {
-		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower);
+		str += std::format(L"\nTrim Slope : {} \nTrim Offset : {} \nTrim Power : {} \nChroma Weight : {} \nSaturation Gain : {}", m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviChromaWeight, m_DoviSatGain);
 	}
 	str.append(m_strStatsVProc);
 

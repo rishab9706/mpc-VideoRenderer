@@ -101,10 +101,81 @@ float applyDoviSOP(float ipt_i)
 }
 
 // --- ST 2094-10 EETF Tone Mapping Function
-float ST209410Tonemap(float ipt_i)
+//float ST209410Tonemap(float ipt_i)
+//{
+//    if (displayMaxNits >= MaxNits)
+//        return ipt_i;
+   
+//    float src_min = LinearToST2084(MinNits, 10000.0f).x;
+//    float src_max = LinearToST2084(MaxNits, 10000.0f).x;
+//    float src_avg = LinearToST2084(AvgNits, 10000.0f).x;
+//    float dst_min = LinearToST2084(0.0f, 10000.0f).x;
+//    float dst_max = LinearToST2084(displayMaxNits, 10000.0f).x;
+
+//    const float min_knee = 0.1f;
+//    const float max_knee = 0.8f;
+//    const float def_knee = 0.4f;
+//    const float knee_adaptation = 0.4f;
+
+//    const float src_knee_min = lerp(src_min, src_max, min_knee);
+//    const float src_knee_max = lerp(src_min, src_max, max_knee);
+//    const float dst_knee_min = lerp(dst_min, dst_max, min_knee);
+//    const float dst_knee_max = lerp(dst_min, dst_max, max_knee);
+
+//    float src_knee = (AvgNits > 0.0f) ? src_avg : 1e-4f;
+//    src_knee = clamp(src_knee, src_knee_min, src_knee_max);
+
+//    float target = (src_knee - src_min) / (src_max - src_min);
+//    float adapted = lerp(dst_min, dst_max, target);
+
+//    float tuning = 1.0f - pl_smoothstep(max_knee, def_knee, target) * pl_smoothstep(min_knee, def_knee, target);
+//    float adaptation = lerp(knee_adaptation, 1.0f, tuning);
+    
+//    float dst_knee = lerp(src_knee, adapted, adaptation);
+//    dst_knee = clamp(dst_knee, dst_knee_min, dst_knee_max);
+
+//    float out_src_knee = ST2084ToLinear(src_knee, 10000.0f).x;
+//    float out_dst_knee = ST2084ToLinear(dst_knee, 10000.0f).x;
+
+//    float x1 = MinNits;
+//    float x3 = MaxNits;
+//    float x2 = out_src_knee;
+
+//    float y1 = 0.0f;
+//    float y3 = displayMaxNits;
+//    float y2 = out_dst_knee;
+
+//    // Build the 3x3 cmat array
+//    float m00 = x2 * x3 * (y2 - y3);
+//    float m01 = x1 * x3 * (y3 - y1);
+//    float m02 = x1 * x2 * (y1 - y2);
+//    float m10 = x3 * y3 - x2 * y2;
+//    float m11 = x1 * y1 - x3 * y3;
+//    float m12 = x2 * y2 - x1 * y1;
+//    float m20 = x3 - x2;
+//    float m21 = x1 - x3;
+//    float m22 = x2 - x1;
+
+//    float coef0 = m00 * y1 + m01 * y2 + m02 * y3;
+//    float coef1 = m10 * y1 + m11 * y2 + m12 * y3;
+//    float coef2 = m20 * y1 + m21 * y2 + m22 * y3;
+
+//    float k = 1.0f / (x3 * y3 * (x1 - x2) + x2 * y2 * (x3 - x1) + x1 * y1 * (x2 - x3));
+    
+//    float c1 = k * coef0;
+//    float c2 = k * coef1;
+//    float c3 = k * coef2;
+    
+//    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
+//    float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
+    
+//    return LinearToST2084(I_mapped_nits, 10000.0f);
+//}
+
+float3 DolbyVisionTonemap(float3 color)
 {
     if (displayMaxNits >= MaxNits)
-        return ipt_i;
+        return color;
    
     float src_min = LinearToST2084(MinNits, 10000.0f).x;
     float src_max = LinearToST2084(MaxNits, 10000.0f).x;
@@ -166,10 +237,34 @@ float ST209410Tonemap(float ipt_i)
     float c2 = k * coef1;
     float c3 = k * coef2;
     
-    float I_nits = ST2084ToLinear(ipt_i, 10000.0f).x;
-    float I_mapped_nits = (c1 + c2 * I_nits) / (1.0f + c3 * I_nits);
+    color.r = (c1 + c2 * color.r) / (1.0f + c3 * color.r);
+    color.b = (c1 + c2 * color.b) / (1.0f + c3 * color.b);
+    color.g = (c1 + c2 * color.g) / (1.0f + c3 * color.g);
     
-    return LinearToST2084(I_mapped_nits, 10000.0f);
+    return color;
+}
+
+float3 DolbyVisionTrims(float3 color)
+{
+    color.r = LinearToST2084(color.r, 10000.0f).x;
+    color.g = LinearToST2084(color.g, 10000.0f).x;
+    color.b = LinearToST2084(color.b, 10000.0f).x;
+    
+    color.r = pow((color.r * TrimSlope) + TrimOffset, TrimPower);
+    color.g = pow((color.g * TrimSlope) + TrimOffset, TrimPower);
+    color.b = pow((color.b * TrimSlope) + TrimOffset, TrimPower);
+    
+    float Y = 0.2627f * color.r + 0.6780f * color.g + 0.0593f * color.b;
+    
+    color.r = color.r * pow((1.0 + ChromaWeight) * color.r / Y, SaturationGain);
+    color.g = color.g * pow((1.0 + ChromaWeight) * color.g / Y, SaturationGain);
+    color.b = color.b * pow((1.0 + ChromaWeight) * color.b / Y, SaturationGain);
+    
+    color.r = ST2084ToLinear(color.r, 10000.0f).x;
+    color.g = ST2084ToLinear(color.g, 10000.0f).x;
+    color.b = ST2084ToLinear(color.b, 10000.0f).x;
+    
+    return color;
 }
 
 // --- BT.2390 EETF Tone Mapping Function ---
@@ -287,11 +382,14 @@ float4 main(PS_INPUT input) : SV_Target {
     }
     else if (sel == 6)
     {
-        float3 ipt = RGB_to_ICTCP(colorPreNorm.rgb);
-        float ipt_tonemapped = ST209410Tonemap(ipt.x);
-        float ipt_sop = applyDoviSOP(ipt_tonemapped);
-        ipt.x = ipt_sop;
-        colorPreNorm.rgb = ICTCP_to_RGB(ipt);
+        //float3 ipt = RGB_to_ICTCP(colorPreNorm.rgb);
+        //float ipt_tonemapped = ST209410Tonemap(ipt.x);
+        //float ipt_sop = applyDoviSOP(ipt_tonemapped);
+        //ipt.x = ipt_sop;
+        //colorPreNorm.rgb = ICTCP_to_RGB(ipt);
+        
+        colorPreNorm.rgb = DolbyVisionTonemap(colorPreNorm.rgb);
+        colorPreNorm.rgb = DolbyVisionTrims(colorPreNorm.rgb);
     }
     else
     {
