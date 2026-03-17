@@ -2234,9 +2234,12 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				float trim_chroma_weight = 0.0f;
 				float trim_saturation_gain = 0.0f;
 				float trim_offset = 0.0f;
-				float trim_slope = 1.0f;
-				float trim_power = 1.0f;
+				float trim_slope = 0.0f;
+				float trim_power = 0.0f;
 				uint16_t doviTargetDisplayNits = 0;
+				m_DoviL1MetadataValid = false;
+				m_DoviL2MetadataValid = false;
+				m_DoviL3MetadataValid = false;
 
 				// based on libplacebo source code
 				constexpr float
