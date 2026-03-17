@@ -33,6 +33,7 @@
 #include "../Include/ID3DVideoMemoryConfiguration.h"
 #include "Shaders.h"
 #include "Utils/CPUInfo.h"
+#include "DolbyVisionParser.h"
 
 #include "../external/minhook/include/MinHook.h"
 
@@ -2225,174 +2226,45 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 						sizeof(MediaSideDataDOVIMetadata::Mapping.curves)
 					) != 0);
 
-				uint16_t frame_max_pq = 0;
-				uint16_t frame_min_pq = 0;
-				uint16_t frame_avg_pq = 0;
-				int frame_max_pq_offset = 0;
-				int frame_min_pq_offset = 0;
-				int frame_avg_pq_offset = 0;
-				float trim_chroma_weight = 0.0f;
-				float trim_saturation_gain = 0.0f;
-				float trim_offset = 0.0f;
-				float trim_slope = 1.0f;
-				float trim_power = 1.0f;
-				uint16_t doviTargetDisplayNits = 0;
 				m_DoviL1MetadataValid = false;
 				m_DoviL2MetadataValid = false;
 				m_DoviL3MetadataValid = false;
 
-				// based on libplacebo source code
-				constexpr float
-					PQ_M1 = 2610.f / (4096.f * 4.f),
-					PQ_M2 = 2523.f / 4096.f * 128.f,
-					PQ_C1 = 3424.f / 4096.f,
-					PQ_C2 = 2413.f / 4096.f * 32.f,
-					PQ_C3 = 2392.f / 4096.f * 32.f;
+				CDolbyVisionParser doviParser(pDOVIMetadata);
 
-				auto pl_hdr_rescale = [](float x) {
-					x = powf(x, 1.0f / PQ_M2);
-					x = fmaxf(x - PQ_C1, 0.0f) / (PQ_C2 - PQ_C3 * x);
-					x = powf(x, 1.0f / PQ_M1);
-					x *= 10000.0f;
+				m_DoviMaxMasteringLuminance = doviParser.GetMasteringMaxNits();
+				m_DoviMinMasteringLuminance = doviParser.GetMasteringMinNits();
 
-					return x;
-					};
+				// Process L1 & L3 (Frame Luminance)
+				DoViFrameLuminance frameLum = doviParser.GetFrameLuminance();
+				m_DoviL1MetadataValid = frameLum.hasL1;
+				m_DoviL3MetadataValid = frameLum.hasL3;
 
-				auto linear_to_pq = [](float y) {
-					y /= 10000.0f;
-					y = fmaxf(y, 0.0f);
-					y = powf(y, PQ_M1);
-					y = (PQ_C1 + PQ_C2 * y) / (1.0f + PQ_C3 * y);
-					y = powf(y, PQ_M2);
-					return y;
-					};
-
-				m_DoviMaxMasteringLuminance = pl_hdr_rescale(pDOVIMetadata->ColorMetadata.source_max_pq / 4095.0f);
-				m_DoviMinMasteringLuminance = pl_hdr_rescale(pDOVIMetadata->ColorMetadata.source_min_pq / 4095.0f);
-
-				float display_pq = linear_to_pq(m_fHdrDisplayMaxNits);
-				float master_pq = pDOVIMetadata->ColorMetadata.source_max_pq / 4095.0f;
-				
-				int lower_index = -1;
-				int upper_index = -1;
-
-				float closest_lower_dist = 1.0f;
-				float closest_upper_dist = 1.0f;
-
-				// 2. Loop through all Level 2 extensions in this frame
-				for (int i = 0; i < 32; ++i) {
-					if (pDOVIMetadata->Extensions[i].level == 2) {
-
-						float target_pq = pDOVIMetadata->Extensions[i].Level2.target_max_pq / 4095.0f;
-
-						if (target_pq <= display_pq) {
-							float dist = display_pq - target_pq;
-							if (dist < closest_lower_dist) {
-								closest_lower_dist = dist;
-								lower_index = i;
-							}
-						}
-						else if (target_pq > display_pq) {
-							float dist = target_pq - display_pq;
-							if (dist < closest_upper_dist) {
-								closest_upper_dist = dist;
-								upper_index = i;
-							}
-						}
-						m_DoviL2MetadataValid = true;
-					}
+				if (m_DoviL1MetadataValid) {
+					m_DoviMaxNits = frameLum.maxNits;
+					m_DoviMinNits = frameLum.minNits;
+					m_DoviAvgNits = frameLum.avgNits;
 				}
+
+				// Process L2 (Target Interpolation)
+				DoViInterpolatedTrims trims = doviParser.GetInterpolatedTrims(m_fHdrDisplayMaxNits);
+				m_DoviL2MetadataValid = trims.isValid;
 
 				if (m_DoviL2MetadataValid) {
-					// SCENARIO A: Display is BETWEEN two targets
-					if (lower_index != -1 && upper_index != -1) {
-						float lower_pq = pDOVIMetadata->Extensions[lower_index].Level2.target_max_pq / 4095.0f;
-						float upper_pq = pDOVIMetadata->Extensions[upper_index].Level2.target_max_pq / 4095.0f;
-
-						float weight = 0.0f;
-						if (upper_pq != lower_pq) weight = (display_pq - lower_pq) / (upper_pq - lower_pq);
-						weight = std::clamp(weight, 0.0f, 1.0f);
-
-						trim_slope = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_slope, pDOVIMetadata->Extensions[upper_index].Level2.trim_slope, weight);
-						trim_offset = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_offset, pDOVIMetadata->Extensions[upper_index].Level2.trim_offset, weight);
-						trim_power = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_power, pDOVIMetadata->Extensions[upper_index].Level2.trim_power, weight);
-						trim_chroma_weight = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_chroma_weight, pDOVIMetadata->Extensions[upper_index].Level2.trim_chroma_weight, weight);
-						trim_saturation_gain = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_saturation_gain, pDOVIMetadata->Extensions[upper_index].Level2.trim_saturation_gain, weight);
-					}
-
-					// SCENARIO B: Display is BRIGHTER than all targets (Interpolate towards Master/Neutral)
-					else if (lower_index != -1 && upper_index == -1) {
-						float lower_pq = pDOVIMetadata->Extensions[lower_index].Level2.target_max_pq / 4095.0f;
-
-						float weight = 0.0f;
-						if (master_pq > lower_pq) weight = (display_pq - lower_pq) / (master_pq - lower_pq);
-						weight = std::clamp(weight, 0.0f, 1.0f);
-
-						trim_slope = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_slope, 2048, weight);
-						trim_offset = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_offset, 2048, weight);
-						trim_power = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_power, 2048, weight);
-						trim_chroma_weight = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_chroma_weight, 2048, weight);
-						trim_saturation_gain = std::lerp(pDOVIMetadata->Extensions[lower_index].Level2.trim_saturation_gain, 2048, weight);
-					}
-
-					// SCENARIO C: Display is DIMMER than all targets (Clamp to the lowest available target)
-					else if (lower_index == -1 && upper_index != -1) {
-						trim_slope = pDOVIMetadata->Extensions[upper_index].Level2.trim_slope;
-						trim_offset = pDOVIMetadata->Extensions[upper_index].Level2.trim_offset;
-						trim_power = pDOVIMetadata->Extensions[upper_index].Level2.trim_power;
-						trim_chroma_weight = pDOVIMetadata->Extensions[upper_index].Level2.trim_chroma_weight;
-						trim_saturation_gain = pDOVIMetadata->Extensions[upper_index].Level2.trim_saturation_gain;
-					}
-
-					trim_slope = (trim_slope / 4096.0f) + 0.5f;
-					trim_offset = (trim_offset / 4096.0f) - 0.5f;
-					trim_power = (trim_power / 4096.0f) + 0.5f;
-					trim_chroma_weight = (trim_chroma_weight / 4096.0f) - 0.5f;
-					trim_saturation_gain = (trim_saturation_gain / 4096.0f) - 0.5f;
+					m_DoviTrimSlope = trims.trimSlope;
+					m_DoviTrimOffset = trims.trimOffset;
+					m_DoviTrimPower = trims.trimPower;
+					m_DoviChromaWeight = trims.trimChromaWeight;
+					m_DoviSatGain = trims.trimSaturationGain;
 				}
 
-				// Extract dynamic L1 values if available
-				for (uint32_t i = 0; i < 32; ++i) {
-					if (pDOVIMetadata->Extensions[i].level == 1) {
-						frame_max_pq = pDOVIMetadata->Extensions[i].Level1.max_pq;
-						frame_min_pq = pDOVIMetadata->Extensions[i].Level1.min_pq;
-						frame_avg_pq = pDOVIMetadata->Extensions[i].Level1.avg_pq;
-						m_DoviL1MetadataValid = true;
-						break;
-					}
-				}
-
-				for (uint32_t i = 0; i < 32; ++i) {
-					if (pDOVIMetadata->Extensions[i].level == 3) {
-						frame_max_pq_offset = pDOVIMetadata->Extensions[i].Level3.max_pq_offset - 2048;
-						frame_min_pq_offset = pDOVIMetadata->Extensions[i].Level3.min_pq_offset - 2048;
-						frame_avg_pq_offset = pDOVIMetadata->Extensions[i].Level3.avg_pq_offset - 2048;
-						m_DoviL3MetadataValid = true;
-						break;
-					}
-				}
-
-				float FrameMaxNits = pl_hdr_rescale((frame_max_pq + frame_max_pq_offset) / 4095.f);
-				float FrameMinNits = pl_hdr_rescale((frame_min_pq + frame_min_pq_offset) / 4095.f);
-				float FrameAvgNits = pl_hdr_rescale((frame_avg_pq + frame_avg_pq_offset) / 4095.f);
-				
 				m_DoviTargetNits = m_fHdrDisplayMaxNits;
 
-				m_DoviMaxNits = FrameMaxNits;
-				m_DoviMinNits = FrameMinNits;
-				m_DoviAvgNits = FrameAvgNits;
-				SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
+				// Push variables to constant buffer
+				SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope,
+					m_DoviTrimOffset, m_DoviTrimPower,
+					m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
 				UpdateStatsStatic();
-
-				if (m_DoviL2MetadataValid) {
-					m_DoviChromaWeight = trim_chroma_weight;
-					m_DoviSatGain = trim_saturation_gain;
-					m_DoviTrimOffset = trim_offset;
-					m_DoviTrimSlope = trim_slope;
-					m_DoviTrimPower = trim_power;
-					SetDolbyVisionDynamicParams(m_DoviChromaWeight, m_DoviSatGain, m_DoviTrimSlope, m_DoviTrimOffset, m_DoviTrimPower, m_DoviMaxNits, m_DoviMinNits, m_DoviAvgNits);
-					UpdateStatsStatic();
-				}
 
 				bool bMMRChanged = false;
 				if (bMappingCurvesChanged) {

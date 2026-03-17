@@ -89,6 +89,7 @@
     <ClCompile Include="D3DUtil\D3D9Geometry.cpp" />
     <ClCompile Include="DisplayConfig.cpp" />
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="DolbyVisionParser.cpp" />
     <ClCompile Include="DX11Helper.cpp" />
     <ClCompile Include="DX11VideoProcessor.cpp" />
     <ClCompile Include="DX9Helper.cpp" />
@@ -126,6 +127,7 @@
     <ClInclude Include="D3DUtil\D3D9Geometry.h" />
     <ClInclude Include="D3DUtil\D3DCommon.h" />
     <ClInclude Include="DisplayConfig.h" />
+    <ClInclude Include="DolbyVisionParser.h" />
     <ClInclude Include="DX11Helper.h" />
     <ClInclude Include="DX11VideoProcessor.h" />
     <ClInclude Include="DX9Helper.h" />
