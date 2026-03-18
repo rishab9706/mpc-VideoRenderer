@@ -255,6 +255,7 @@ float3 DolbyVisionTrims(float3 color)
     color.b = pow((color.b * TrimSlope) + TrimOffset, TrimPower);
     
     float Y = 0.2627f * color.r + 0.6780f * color.g + 0.0593f * color.b;
+    Y = max(1e-6f, Y); // Prevent division by zero on black pixels
     
     color.r = color.r * pow((1.0 + ChromaWeight) * color.r / Y, SaturationGain);
     color.g = color.g * pow((1.0 + ChromaWeight) * color.g / Y, SaturationGain);

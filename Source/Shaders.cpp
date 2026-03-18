@@ -659,7 +659,7 @@ HRESULT GetShaderConvertColor(
 
 	bool has_mmr = false;
 
-	if (pDoviMetadata) {
+	if (pDoviMetadata && !(pDoviMetadata->Header.el_spatial_resampling_filter_flag && !pDoviMetadata->Header.disable_residual_flag)) {
 		if (bDX11) {
 			for (const auto& curve : pDoviMetadata->Mapping.curves) {
 				for (uint8_t i = 0; i < (curve.num_pivots - 1); i++) {
@@ -746,7 +746,7 @@ HRESULT GetShaderConvertColor(
 
 	ShaderGetPixels(bDX11, fmtParams, exFmt.VideoChromaSubsampling, chromaScaling, blendDeinterlace, code);
 
-	if (pDoviMetadata) {
+	if (pDoviMetadata && !(pDoviMetadata->Header.el_spatial_resampling_filter_flag && !pDoviMetadata->Header.disable_residual_flag)) {
 		if (has_mmr) {
 			ShaderDoviReshape(code);
 		} else {
