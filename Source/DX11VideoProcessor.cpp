@@ -2229,6 +2229,14 @@ HRESULT CDX11VideoProcessor::CopySample(IMediaSample* pSample)
 				m_DoviL1MetadataValid = false;
 				m_DoviL2MetadataValid = false;
 				m_DoviL3MetadataValid = false;
+				m_DoviMaxNits = 0.0f;
+				m_DoviMinNits = 0.0f;
+				m_DoviAvgNits = 0.0f;
+				m_DoviTrimSlope = 1.0f;
+				m_DoviTrimOffset = 0.0f;
+				m_DoviTrimPower = 1.0f;
+				m_DoviChromaWeight = 0.0f;
+				m_DoviSatGain = 0.0f;
 
 				CDolbyVisionParser doviParser(pDOVIMetadata);
 
