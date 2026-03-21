@@ -1832,7 +1832,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 				SetShaderLuminanceParams();
 			}
 
-			if (m_bHdrSupport && m_bHdrLocalToneMapping)
+			if (SourceIsHDR() && m_bHdrLocalToneMapping)
 			{
 				EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSHDR10ToneMapping, IDF_PS_11_FIX_HDR10));
 				DLogIf(m_pPSHDR10ToneMapping, L"CDX11VideoProcessor::InitMediaType() m_pPSHDR10ToneMapping(type: '{}') created", m_iHdrLocalToneMappingType);
@@ -1850,7 +1850,7 @@ BOOL CDX11VideoProcessor::InitMediaType(const CMediaType* pmt)
 		m_bVPUseRTXVideoHDR = false;
 		hr = InitializeTexVP(FmtParams, origW, origH);
 		if (SUCCEEDED(hr)) {
-			if (m_bHdrSupport && m_bHdrLocalToneMapping)
+			if (SourceIsHDR() && m_bHdrLocalToneMapping)
 			{
 				EXECUTE_ASSERT(S_OK == CreatePShaderFromResource(&m_pPSHDR10ToneMapping, IDF_PS_11_FIX_HDR10));
 				DLogIf(m_pPSHDR10ToneMapping, L"CDX11VideoProcessor::InitMediaType() m_pPSHDR10ToneMapping(type: '{}') created", m_iHdrLocalToneMappingType);
